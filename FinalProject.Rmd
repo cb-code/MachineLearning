@@ -1,0 +1,318 @@
+---
+title: "5335 Final Project"
+author: "chb2132"
+date: "6/2/2021"
+output: pdf_document
+---
+
+# MNIST Digit Recognition | ML Final Project
+
+## 0| Proposal
+### {Motivation, Goals, & Hypotheses}
+
+The Modified National Institute of Standards and Technology (MNIST) Digit Recognition dataset is a set of digits from 0-9, handwritten by humans. The digits are made available for various data science and machine learning projects which aim to provide real-world data in order to provide a basis for furthering deep learning work and exploration in the sub-field of computer vision. 
+
+There are some ethical/societal concerns to be had with the MNIST Digit Recognition database, as there is a cause for concern and forethought regarding any database of real-world information that can be used in order to further any artificial intelligence or self-learning entity. While there are possible cases in which this dataset could be misused, i.e. input with the intent of furthering some criminal work or harmful work, such as forgery of handwriting, say on a check or an endorsement of a check, there are also a great many positive, beneficial uses for the dataset in broader society. Thus, as long as work is encouraged with the perspective being that transparency and open-sourcing should be largely included in any findings or efforts, it is clear that the pros outweigh the cons in a properly conducted provision, exploration, and experimentation with the MNIST Digit Recognition dataset.
+
+## 1| Initial Setup
+### {Importing Libraries}
+
+```{r setup}
+install.packages("keras")
+install.packages("tidyverse")
+
+library(keras)
+library(tidyverse)
+```
+
+## 2| Source Data
+### {MNIST Digit Dataset}
+
+The Dataset can be sourced a great many ways, including via third-party sites such as Kaggle, however it is also directly available via several links, as well as through several R libraries and packages. Some have even created easily run code that can download various instances or subgroups of MNIST datasets, which are provided online with a multitude of well-explained documentation and explanation.
+
+```{r load}
+# load in MNIST data
+
+mnist <- dataset_mnist()
+
+train_images <- mnist$train$x
+train_labels <- mnist$train$y
+  
+test_images <- mnist$test$x
+test_labels <- mnist$test$y
+```
+## 3| Exploratory Analysis
+### {Exploring the Dataset}
+ 
+The data contains 28*28 matrices which comprise a particular digit from 0-9. Each of these pixels is assigned a particular value from 0-255 which are used to indicate brightness along this scale. The brightness is something we will ultimately be normalizing each of these pixels by, i.e. we divide each of the assigned values by 255 so that it becomes a value from 0 to 1, in a process known as "one-hot encoding". 
+
+The dataset is provided with clearly marked features (x-values), i.e. the pixel value itself, which is placed within the greater context of a 28*28 dimensional matrix. The targets (i.e. the y-values representing the various labels that consist of the digits 0-9) are also provided clearly and under the properly labeled column in the MNIST database. This data set does not contain any NA or missing items and as a result, does not any need cleaning as such. 
+
+In the MNIST digit recognition database there are pre-provided image and label sets corresponding to both training and test datasets. We will make use of both in order to build our various models as well as in order to train and fit the models, and then to evaluate our trained models at the conclusion of the exploration as well.
+
+```{r explore}
+length (dim(train_images))
+dim(train_images)
+typeof(train_images)
+
+digit <- train_images[5,,]
+plot(as.raster(digit, max = 255))
+```
+
+## 4| Data Preparation
+### {Shaping & Normalizing Images}
+
+```{r reshape}
+train_images <- array_reshape(train_images, c(60000, 28*28))
+train_images <- train_images/255  # normalizing values
+
+test_images <- array_reshape(test_images, c(60000, 28*28))
+test_images <- test_images/255 # normalizing values
+```
+
+## 5| Label Preparation
+### {Supervised Learning}
+
+We want to change our label dataset for both the provided training and test datasets so that it represents categorial labels with various levels for each of the digit values from 0-9. To do this, we invoke our to_categorial method on both train_labels and test_labels datasets.
+
+```{r label}
+train_labels <- to_categorial(train_labels)
+test_labels <- to_categorical(test_labels)
+```
+
+## 6| Model 1 & Rationale
+### {Neural Network}
+
+In order to properly explore the area of computer vision and how well existing methods for deep learning perform when tasked with recognition of the handwritten images depicting the digits from 0-9, we will invoke three different deep learning models. The first, essentially serving as our baseline model, is the normal/regularized neural net.
+
+In this model, our workflow consists of the following sequence of steps: first we take a look at the data that we have by invoking the str() string method. After looking at the train and test data, respectively, we will then feed the data to the neural network we've defined, and the network will then be able to learn the various associations between images and the various 28*28 arrangements of pixel values, and likely will generate patterns for these matrix arrangements given the various values and learned threshold values for whether or not to binomially categorize each of the pixels within the various matrix locations, and then to assign a label to the overall matrices.
+
+In neural nets, we have a core building block known as the layer, which is defined as a data-processing module which acts as a data filter, in a sense. When the data is input at the start of the layer, it goes through transformations that result in an output at the end of the layer which contains the same data, transformed in to a more useful form.
+Layers are expected to extract representations of the data that is fed into them which provides a greater amount of meaning to the user.
+
+```{r nn}
+
+network1 <- keras_model_sequential() %>%
+  layer_dense(units = 512, activation = "relu", input_shape = c(28*28)) %>%
+  layer_dense(units = 10, activation = "softmax")
+```
+
+## 7| Compile the Model
+### {Applying Compilation Function}
+
+Compilation of the model consists of the following preparatory processes:
+
+1. Loss function: our network must be able to measure how well it performs on the training dataset, in order to properly align itself with the outcome goals.
+
+2. Optimizer: the optimizer is how the model self-updates given two inputs, the loss function as well as the new input data that it is fed.
+
+3. Metrics: these will be monitored throughout both the training as well as the testing processes--for this dataset we care about accuracy as a metric but not so much precision 
+or recall. This represents the fraction of the images the model can correctly classify.
+
+Our compilation function serves to modify the neural network in its existing location and does not create a new instance of a network object. The data has been transformed and reshaped already so that it results in a double array with the shape (60000, 28*28) where each index location takes on a value from 0 to 1. 
+
+```{r compile}
+# use categorical cross-entropy loss-function given transformation of label data
+# to categorical values (same mathematical data as sparse_categorial_crossentropy)
+# categorical_crossentropy is the loss function used as a feedback signal in model 1
+network1 %>% compile(
+  optimizer = "rmsprop",
+  loss = "categorical_crossentropy",
+  metrics = c("accuracy")
+)
+```
+ 
+## 8| Train/Re-train the Network
+### {Keras Fit}
+
+In deep learning, we will create simple, linear layers which are chained together essentially to create a deep learning process such as a neural net. This process is known as progressive data distillation with successively refined data layers acting as filters throughout the chained information pipeline.
+
+In the basic neural net model, we have a total of 2 layers that are densely connected, hence why we used layer_dense to define the model through the Keras library for R. Dense layers are a term used for layers that are fully connected in a neural net model. Here, we have a softmax layer applied to both our second, last layer of the defined model. This creates an array of 10 probability scores that sum to 1. Each of these values represent the probability of the digit image being in the corresponding index (i.e. the likelihood that the index value is actually the particular digit value represented by the current image matrix being assessed).
+
+Since we are using the categorical_crossentropy loss function here in model 1, we want to use the last-layer activation function softmax since it is the correct corresponding last-layer activation function for this particular loss function invoked in the model. For the binary_crossentropy loss function, one wants to invoke the last-layer activation function, the sigmoid function, which is useful for binary classification as well as multi-class multi-label classification models. For regression to arbitrary values, we use the mse loss function and no last-layer activation function, and for regression to values between 0 and 1, we use the mse or binary_crossentropy loss function in conjunction with the last-layer activation function, the sigmoid function.  
+
+```{r fit}
+network1 $>$ fit(train_images, train_labels, epochs = 5, batch_size = 128)
+
+# re-training our model from scratch
+network1 <- keras_model_sequential() %>%
+  layer_dense(units = 64, activation = "relu", input _shape = c(20000)) %>%
+  layer_dense(units = 64, activation = "relu") %>%
+  layer_dense(units = 46, activation = "softmax")
+
+network1 %>% compile(
+  optimizer = "rmsprop",
+  loss = "categorical_crossentropy",
+  metrics = c("accuracy")
+)
+
+history1 <- network1 %>% fit(
+  partial_x_train,
+  partial_y_train,
+  epochs = 9,
+  batch_size = 512,
+  validation_data = list(x_val, y_val)
+)
+
+results1 <- network1 %>% evaluate(x_test, one_hot_test_labels)
+results1
+
+# comparison of generated results to random baseline
+test_labels_copy <- test_labels
+test_labels_copy <- sample(test_labels_copy)
+length(which(testlabels == test_labels_copy)/length(test_labels)
+```
+
+## 9| Model 2 & Rationale
+### {Convolutional Neural Network}
+
+Convolutional neural networks are a more advanced deep learning method compared to normal neural networks. The difference in their structure lies between densely connected layers and convolutional layers. Dense layers tend to learn global patterns in the feature space for their inputs, su ch as MNIST digit patterns involving all pixels in the 28*28 matrix. Convolutional networks, however, are focused more on local patterns found in the 3x3 2-dimensional input windows of the input pixels.
+
+Due to these patterns, convolutional neural nets have two main properties that cover their general characteristics. Firstly, they operate via these learned patterns, which are translation invariant, meaning that once they've learned a particular pattern, they are able to recognize said pattern anywhere. Secondly, they are able to learn differing spatial hierarchies of said patterns. This means that they might learn first through a convolution layer to recognize edge patterning, and then a second convolution layer might teach them to understand larger patterns that consist of a scaling of these lower layer features, et cetera. Convolutions tend to operate over 3-dimensional tensors, which are known as feature maps, and contain to spatial axes (height and width) in addition to a third axis, the depth axis (also known as the channel axis).
+
+```{r cnn}
+mnist <- dataset_mnist()
+
+network2 <- keras_model_sequential() %>%
+  layer_conv_2d(filters = 32, kernel_size = c(3,3), activation = "relu", input_shape = c(28, 28, 1)) %>%
+  layer_max_pooling_2d(pool_size = c(2,1)) %>%
+  layer_conv_2d(filters = 64, kernel_size = c(3,3), activation = "relu") %>%
+  layer_max_pooling_2d(pool_size = c(2,2)) %>%
+  layer_conv_2d(filters = 64, kernel_size = c(3,3), activation = "relu")
+
+network2
+
+network2 <- network2 %>%
+  layer_flatten() %>%
+  layer_dense(units = 64, activation = "relu") %>%
+  layer_dense(units = 10, activation = "softmax")
+
+network2
+
+c(c(train_images, train_labels), c(test_images, test_labels)) %<-% mnist
+
+train_images <- array_reshape(train_images, c(60000, 28, 28, 1))
+train_images <- train_images/255
+
+test_images <- array_reshape(test_images, c(60000, 28, 28, 1))
+test_images <- test_images/255
+
+train_labels <- to_categorial(train_labels)
+test_labels <- to_categorial(test_labels)
+
+network2 %>% compile(
+  optimizer = "rmsprop",
+  loss = "categorical_crossentropy",
+  metrics = c("accuracy")
+)
+
+network2 %>% fit(train_images, train_labels, epochs = 5, batch_size = 64)
+network2
+```
+
+## 10| Model 3 & Rationale
+### {Variational Auto-Encoders}
+
+Variational auto-encoders are the more advanced deep learning technique of the three. They operate via a varied approach to auto-encoder functionality, which typically function by mapping an input x to a compressed representation, and then reconstructing, or decoding it back as x'. While in practice classical auto-encoders are not particularly useful or well-mapped latent spaces which haven't been too great historically in terms of compression either.
+
+Variational auto-encoders serve to augment auto-encoders using some "statistical magic" which forces the auto-encoders to learn continuous and highly structured latent spaces which are actually a powerful image generation tool in deep learning nowadays.
+
+The instance of a variational auto-encoder seen below does not specifically perform VAE operation on the MNIST digit recognition dataset but pertains to a general instantiation of a variational auto-encoder that could be specifically tailored to operate upon the MNIST digit recognition dataset much like the neural network and the convolutional neural network implemented in the steps above.
+
+```{r vae}
+c(z_mean, z_log_variance) %>%  encoder(input_img)
+z <- z_mean + exp(z_log_variance) * epsilon
+
+img_shape <- c(28, 28, 1)
+batch_size <-
+latent_dim <- 2L
+
+input_img <- layer_input(shape = img_shape)
+
+x <- input_img %>%
+  layer_conv_2d(filters = 32, kernel_size = 3, padding = "same", activation =  "relu") %>%
+  layer_conv_2d(filters = 64, kernel_size = 3, padding = "same", activation = "relu", strides = c(2,2)) %>%
+  layer_conv_2d(filters = 64, kernel_size = 3, padding = "same", activation = "relu") %>%
+  layer_conv_2d(filters = 64, kernel_size = 3, padding = "same", activation = "relu")
+
+shape_before_flattening <- k_int_shape(x)
+
+x <- x %>%
+  layer_fla4tten() %>%
+  layer_dense(units = 32, activation = "relu")
+
+z_mean <- x %>% 
+  layer_dense(units = latent_dim)
+
+z_log_var <- x %>% 
+  layer_dense(units = latent_dim)
+```
+
+
+## 11| Comparing Models
+### {Runtime & Accuracy}
+
+In terms of achieving the goal of properly identifying and labeling/classifying the digits from their respective image data, Model 1, the standard neural net, which has an accuracy score of 0.989 (i.e. 98.9%) and a loss score of 0.0372 on the training dataset, and a score of 0.9785 (i.e. 97.85%) and a loss score of 0.07519608 on the test dataset. Model 2, the convolutional neural net, which has an accuracy score of 0.993 (corresponding to a percentage value of 99.3%) and a loss score of 0.02563557 on the test dataset. This reflects an improvement between the neural net and the convolutional neural net of around 68%, which is great news.
+
+What can be learned from our processes is the relative performance of three different models on the same data is that we might have found more success in results that did not include the "centering" of pixel values to their own respective matrices (i.e. the normalization of each of the pixel values to shrink their own size from a linspace of 0-255 to one that stretched only from 0-1 instead. This is something that could be applied in future iterations of the experimental work applied above.
+
+The best performing method invoked amongst the three approaches that were introduced and explored with the MNIST digit recognition dataset was Model 2, the convolutional neural net. The overall results provided by this methodology resulted in a better score for both the loss function value as well as the computed accuracy score.
+
+In terms of expectations, it was believed at the onset that the Variational Auto-Encoders, generally thought of as the more advanced approach of the three implemented, would perform if not significantly, at the very least, relatively better than the regular neural net as well as the convolutional neural net models used prior. Since the neural net and the convolutional neural net are the only two models to be specifically implemented on the MNIST digit recognition dataset, the expected next best-performing model is the convolutional neural net, which turned out to be the case in our implementation experiment as well.
+
+```{r evaluation}
+network1 %>% fit(train_images, train_labels, epochs = 5, batch_size = 128)
+
+model1 <-  network1 %>% evaluate(test_images, test_labels)
+model1
+
+model1 %>% predict_classes(test_images[1:10,]
+
+network2 %>% fit(train_images, train_labels, epochs = 5, batch_size = 64)
+
+model2 <- network2 %>% evaluate(test_images, test_labels)
+model2
+
+model2 %>% predict_classes(test_images[1:10,]
+```
+
+## 12| Conclusion
+### {Optimal Method}
+
+The methodology that was found to be the most useful and successful of those applied is the one that follows the same implementation steps as before, either with the one-hot encoding step in the process or not, and which implements the particular use of the convolutional neural net, which in our case is Model 2. This is due to the fact that the overall results for this particular model were better in retrospect than the other two methods applied.
+
+In terms of what I'd hypothesized at the commencement of the exploration, that Variational Auto-Encoders would perform the best out of the three deep learning methodologies applied, what turned out to be the case actually implemented in our dataset was the second model of the three, the convolutional neural net.
+
+Looking at the possible limitations of the dataset itself, we can see that the digits were restricted to only one of the three scales that are used in order to determine the nature of a pixel in the scope of computer vision--i.e. the digits were provided in black and white format where the only information conveyed was the brightness of the digit, not the hue or the saturation. Had we been provided color copies of the digits, we might have found a greater predictive accuracy in all three of our models with a tripling of the input data information across three different 0-255 linspace sliders.
+
+In the future, some improvements might see exploration with the color version of the digit database as described in the earlier paragraph. Further experimentation on other methods of modeling, such as Generative Adversarial  Network (GAN) Models, or various combinations of pre-processing steps, might serve to further existing work and improve upon currently provided results.
+
+In conclusion, it was found that the model obtained via the method for Model 2, our convolutional neural net using the Keras interface/library, was optimal in terms of both runtime complexity as well as overall accuracy score in terms of the model's ability to correctly categorize/recognize the various digits provided by the MNIST dataset.
+
+## 13| Bibliography
+### {Works Cited}
+
+**1.** Allaire, J.J. and Chollet, F. 2018. Deep Learning with R.
+
+**2.** Amrrs. 2021. Deep Learning: MNIST with Keras.
+       https://github.com/amrrs/deep_learning_intro_mnist_mlp_keras
+
+**3.** Clomax. 2021. Neural Net: MNIST Digit Reader.
+       https://github.com/clomax/neuralnet-digit-reader
+
+**4.** Harut, K. H. 2021. MNIST Neural Net.
+       https://github.com/khharut/mnist_neuralnet
+
+**5.** Heilbut, A. 2020. Machine Learning [Lecture Slides]:
+       Columbia University in the city of New York.
+
+**6.** LeCun, Y. 2021. MNIST Handwritten Digit Database. 
+       https://yann.lecun.com/exdb/mnist/
+
+**7.** McKinney, W. 2018. R for Data Science. 
+
+**8.** Riess, M. 2021. MNIST H2o.
+       https://github.com/Mikeriess/MNIST_MXNET-H2o
+
+**8.** Verdoorn, E. 2021. MNIST.
+       https://github.com/elijahverdoorn/MATH384/tree/master/MNIST
