@@ -1,0 +1,410 @@
+---
+title: "Hw1"
+author: "chb2132"
+date: "10/5/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ISLR)
+library(MASS)
+library(dplyr)
+library(plyr)
+library(ggplot2)
+```
+Q2 Maximum Likelihood Estimation
+
+d) Using the expression you have derived in b), write an R function that will compute the MLE estimate of Lambda from a sample of x's
+
+$P_x$($x_i$) = $_j$
+```{r Q2.d Maximum Likelihood Estimation}
+
+negll <- function(lambda0, lambda1){
+    x <- Y$xvar[-idx]
+    y <- Y$yvar[-idx]
+    lambda = exp(lambda0 + x*lambda1)
+    -sum(y*log(lambda) - lambda)
+}
+
+```
+e) Using R, show an example of how you can generate samples (with a specified size) of simulated data from an exponential distribution with a specified lambda:
+
+r rexp - exponential distribution in r
+rexp(# observations, rate=rate )
+
+Example:
+
+```{r Q3.e kNN Classification (using R)}
+
+lrate = 1/5
+n = 5
+
+samples <- function(n, lrate){
+    rexp(n, lrate)
+}
+
+samples(n, lrate)
+
+```
+
+f) using functions written above, generate a plot that illustrates how the accuracy of the MLE estimate of lambda changes as the size n of the training sample grows for n in [1, 10, 20, 50, 100, 500, 1000]. For each n, you will need to generate multiple samples (say, 100) so you obtain some data about how the estimates vary.
+
+```{r Q3.f kNN Classification (using R)}
+
+lrate = 1/5
+sample1 <- samples(1, lrate)
+sample10 <- samples(10, lrate)
+sample20 <- samples(20, lrate)
+samples50 <- samples(50, lrate)
+samples100 <- samples(100, lrate)
+samples500 <- samples(500, lrate)
+samples1000 <- samples(1000, lrate)
+
+negll2 <- function(par, dat){
+    mu = par[1]
+    sigma = par[2]
+    -sum(dnorm(x = dat, mean = mu, sd = sigma, log = TRUE))
+}
+
+mle1 <- optim(par = c(mu = 0.2, sigma = 1.5), fn = negll2, data = sample1,
+            control = list(parscale = c(mu = 0.2, sigma = 1.5)))
+
+#trying a different method with poisson distribution instead 
+
+data <- rpois(n=1, lambda=5)
+df_pois <- data.frame(data = data)
+
+df_pois %>%
+    ggplot(aes(x = data)) +
+    geom_histogram(bins = 100) +
+    ylab("count") + xlab("data") +
+    theme_bw(base_size = 12) +
+    ggtitle("Poisson Distribution - rpois(1,5)")
+    
+df_pois
+
+#trying a new method for the above
+num.iter <- 100
+p.true <- 0.35
+samples <- numeric(num.iter)
+num.samples.per <- data.frame(1, 10, 20, 50, 100, 500, 1000)
+
+for(iter in seq_len(num.iter)){
+        samples[iter] <- mean(rbinom(num.samples.per$X1, 1, p.true))
+}
+
+hist(samples, freq = F)
+curve(dnorm(x, mean = p.true, sd = sqrt((p.true*(1-p.true)/num.samples.per$X1))),
+            .25, .55, lwd = 2, xlab = "", ylab = "", add = T)
+
+for(iter in seq_len(num.iter)){
+        samples[iter] <- mean(rbinom(num.samples.per$X1, 10, p.true))
+}
+
+hist(samples, freq = F)
+curve(dnorm(x, mean = p.true, sd = sqrt((p.true*(1-p.true)/num.samples.per$X10))),
+            .25, .55, lwd = 2, xlab = "", ylab = "", add = T)
+
+
+for(iter in seq_len(num.iter)){
+        samples[iter] <- mean(rbinom(num.samples.per$X1, 20, p.true))
+}
+
+hist(samples, freq = F)
+curve(dnorm(x, mean = p.true, sd = sqrt((p.true*(1-p.true)/num.samples.per$X20))),
+            .25, .55, lwd = 2, xlab = "", ylab = "", add = T)
+
+
+for(iter in seq_len(num.iter)){
+        samples[iter] <- mean(rbinom(num.samples.per$X1, 50, p.true))
+}
+
+hist(samples, freq = F)
+curve(dnorm(x, mean = p.true, sd = sqrt((p.true*(1-p.true)/num.samples.per$X50))),
+            .25, .55, lwd = 2, xlab = "", ylab = "", add = T)
+
+
+for(iter in seq_len(num.iter)){
+        samples[iter] <- mean(rbinom(num.samples.per$X1, 100, p.true))
+}
+
+hist(samples, freq = F)
+curve(dnorm(x, mean = p.true, sd = sqrt((p.true*(1-p.true)/num.samples.per$X100))),
+            .25, .55, lwd = 2, xlab = "", ylab = "", add = T)
+
+
+for(iter in seq_len(num.iter)){
+        samples[iter] <- mean(rbinom(num.samples.per$X1, 500, p.true))
+}
+
+hist(samples, freq = F)
+curve(dnorm(x, mean = p.true, sd = sqrt((p.true*(1-p.true)/num.samples.per$X500))),
+            .25, .55, lwd = 2, xlab = "", ylab = "", add = T)
+
+for(iter in seq_len(num.iter)){
+        samples[iter] <- mean(rbinom(num.samples.per$X1, 1000, p.true))
+}
+
+hist(samples, freq = F)
+curve(dnorm(x, mean = p.true, sd = sqrt((p.true*(1-p.true)/num.samples.per$X1000))),
+            .25, .55, lwd = 2, xlab = "", ylab = "", add = T)
+
+```
+
+Q4 kNN Classification (using R)
+
+a) Write your own R function to compute Euclidean distance with respect to the unlabeled point, U, set at (2.5, 2)
+
+```{r Q4.a kNN Classification (using R)}
+
+set.seed(42)
+x <- rbind( cbind( mvrnorm(100, c(2, 5), matrix(c(1, 0.5, -.5, 1), nrow = 2)), 1),
+cbind( mvrnorm(100, c(5, 2), matrix(c(1, 0.5, -.5, 1), nrow = 2)), 2), 
+cbind( mvrnorm(100, c(0, 0), matrix(c(1, 0.5, -.5, 1), nrow = 2)), 3) )
+
+#for col (x[,3] --> 1 = black, 2 = red, 3 = green)
+plot(x[, 1:2], col=x[,3], main = "simulated mixture of 2d gaussians ")
+
+u <- data.frame(c(2.5, 2))
+U <- matrix(unlist(t(u)), byrow=T, 1, 2)
+dim(U)
+
+dvectx <- k[,3]
+
+#color key for x[,3] value
+colkey <- data.frame(c(1, 2, 3), c("black", "red", "green"))
+colnames(colkey) <- c("colval", "color")
+
+eu_dist <- function(k, U1) {
+    #initializing empty vect
+    dvect <- rep(0, nrow(k))
+    for(i in 1:nrow(k)){
+        dvect[i] <- sqrt((k[,1][i] - U1[1,1])^2 + (k[,2][i] - U1[1,2])^2)
+    }
+    return(dvect_df)
+}
+
+eu_dist1 <- eu_dist(x, U)
+
+x <- as.data.frame(x)
+colnames(x) <- c("x", "y", "col")
+
+dvectx <- x$col
+dvect_df <- data.frame(dvect, dvectx)
+
+#trying vectorized method (instead of for loop)
+eu_dist2 <- sqrt((x[,1] - U[,1])^2 + (x[,2] - U[,2])^2)
+
+```
+
+b) write an R function that implements kNN classification, using the distance 
+matrix you just computed, and taking the majority vote of the nearest k-points
+what is the kNN label for U when k = 1? k = 2? k = 3? k = 4?
+
+```{r Q4.b kNN Classification (using R)}
+
+kNN_simple <- function(dist_mat, k){
+    
+    #sorting for distance from point U, min. distance first
+    dists <- dist_mat[,1]
+    dists <- as.data.table(sort(dists, decreasing = TRUE))
+    
+    #creating df for the distance matrix dist values, label val
+    colnames(dists) <- "dvect"
+    cols <- as.data.table(dist_mat)
+    colnames(cols) <- c("dvect", "dcol")
+    
+    #merging sorted values for distance to U and color label
+    dvect_sorted <- merge.data.table(dists, cols, by = "dvect")
+    eu_df <- dvect_sorted$dcol[1:k]
+    eu_maj <- tail(names(sort(table(eu_df))), 1)
+    
+    #returning color label corresponding to color value (1,2,3)
+    if(eu_maj == "1"){
+        label <- "black"
+    }
+    else if(eu_maj == "2"){
+        label <- "red"
+    }
+    else{
+        label <- "green"
+    }
+    
+    return(label)
+}
+
+kNN_simple(dvect_df, 1)
+kNN_simple(dvect_df, 2)
+kNN_simple(dvect_df, 3)
+kNN_simple(dvect_df, 4)
+
+```
+
+c) calculate kNN using decision functions different from majority vote, one 
+#common scheme to take weighted votes as a function of distance
+
+c.a) Inverse Euclidean Distance: ||v-u||^(-1)
+
+```{r Q4.c.a kNN Classification (using R)}
+
+kNN_invEuc <- function(dist_mat, k){
+    
+    #sorting for distance from point U, min. distance first
+    dists <- dist_mat[,1]
+    dists <- as.data.table(sort(dists, decreasing = TRUE))
+    
+    #creating df for the distance matrix dist values, label val
+    colnames(dists) <- "dvect"
+    cols <- as.data.table(dist_mat)
+    colnames(cols) <- c("dvect", "dcol")
+    
+    #merging sorted values for distance to U and color label
+    dvect_sorted <- merge.data.table(dists, cols, by = "dvect")
+    kNN_df <- dvect_sorted[1:k]
+    
+    #weighting and summation of weights for black label
+    dvect_black <- kNN_df[kNN_df$dcol == "1"]
+    blk_inv <- 1/dvect_black
+    blk_weights <- sum(blk_inv)
+    
+    #weighting and summation of weights for red label
+    dvect_red <- kNN_df[kNN_df$dcol == "2"]
+    red_inv <- 1/dvect_red
+    red_weights <- sum(red_inv)
+    
+    #weighting and summation of weights for green label
+    dvect_green <- kNN_df[kNN_df$dcol == "3"]
+    grn_inv <- 1/dvect_green
+    grn_weights <- sum(grn_inv)
+    
+    #calculating best scoring weight from all three labels
+    weight_max <- max(blk_weights, red_weights, grn_weights)
+    
+    #returning color label corresponding to color value (1,2,3)
+    if(weight_max == "blk_weights"){
+        label <- "black"
+    }
+    else if(weight_max == "red_weights"){
+        label <- "red"
+    }
+    else{
+        label <- "green"
+    }
+    
+    return(label)
+}
+
+kNN_invEuc(dvect_df, 6)
+
+```
+
+c.b) Inverse Square: ||v-u||^(-2)
+
+```{r Q4.c.b kNN Classification (using R)}
+
+kNN_invSq <- function(dist_mat, k){
+    
+    #sorting for distance from point U, min. distance first
+    dists <- dist_mat[,1]
+    dists <- as.data.table(sort(dists, decreasing = TRUE))
+    
+    #creating df for the distance matrix dist values, label val
+    colnames(dists) <- "dvect"
+    cols <- as.data.table(dist_mat)
+    colnames(cols) <- c("dvect", "dcol")
+    
+    #merging sorted values for distance to U and color label
+    dvect_sorted <- merge.data.table(dists, cols, by = "dvect")
+    kNN_df <- dvect_sorted[1:k]
+    
+    #weighting and summation of weights for black label
+    dvect_black <- kNN_df[kNN_df$dcol == "1"]
+    blk_inv <- 1/dvect_black^2
+    blk_weights <- sum(blk_inv)
+    
+    #weighting and summation of weights for red label
+    dvect_red <- kNN_df[kNN_df$dcol == "2"]
+    red_inv <- 1/dvect_red^2
+    red_weights <- sum(red_inv)
+    
+    #weighting and summation of weights for green label
+    dvect_green <- kNN_df[kNN_df$dcol == "3"]
+    grn_inv <- 1/dvect_green^2
+    grn_weights <- sum(grn_inv)
+    
+    #calculating best scoring weight from all three labels
+    weight_max <- max(blk_weights, red_weights, grn_weights)
+    
+    #returning color label corresponding to color value (1,2,3)
+    if(weight_max == "blk_weights"){
+        label <- "black"
+    }
+    else if(weight_max == "red_weights"){
+        label <- "red"
+    }
+    else{
+        label <- "green"
+    }
+    
+    return(label)
+}
+
+kNN_invSq(dvect_df, 6)
+
+```
+
+c.c) Gaussian Functional Distance: $e^{-\alpha||v-u||^2}$
+
+```{r Q4.c.c kNN Classification (using R)}
+
+kNN_GaussFunc <- function(dist_mat, k, alpha){
+    
+    #sorting for distance from point U, min. distance first
+    dists <- dist_mat[,1]
+    dists <- as.data.table(sort(dists, decreasing = TRUE))
+    
+    #creating df for the distance matrix dist values, label val
+    colnames(dists) <- "dvect"
+    cols <- as.data.table(dist_mat)
+    colnames(cols) <- c("dvect", "dcol")
+    
+    #merging sorted values for distance to U and color label
+    dvect_sorted <- merge.data.table(dists, cols, by = "dvect")
+    kNN_df <- dvect_sorted[1:k]
+    
+    #weighting and summation of weights for black label
+    dvect_black <- kNN_df[kNN_df$dcol == "1"]
+    blk_inv <- exp(-alpha*dvect_black^2)
+    blk_weights <- sum(blk_inv)
+    
+    #weighting and summation of weights for red label
+    dvect_red <- kNN_df[kNN_df$dcol == "2"]
+    red_inv <- exp(-alpha*dvect_red^2)
+    red_weights <- sum(red_inv)
+    
+    #weighting and summation of weights for green label
+    dvect_green <- kNN_df[kNN_df$dcol == "3"]
+    grn_inv <- exp(-alpha*dvect_green^2)
+    grn_weights <- sum(grn_inv)
+    
+    #calculating best scoring weight from all three labels
+    weight_max <- max(blk_weights, red_weights, grn_weights)
+    
+    #returning color label corresponding to color value (1,2,3)
+    if(weight_max == "blk_weights"){
+        label <- "black"
+    }
+    else if(weight_max == "red_weights"){
+        label <- "red"
+    }
+    else{
+        label <- "green"
+    }
+    
+    return(label)
+}
+
+kNN_GaussFunc(dvect_df, 6, 0.2)
+kNN_GaussFunc(dvect_df, 6, 0.4)
+```
