@@ -1,0 +1,952 @@
+---
+title: "Machine Learning (5335) Hw2 | C.Blanchard (uni-chb2132)"
+author: "Optimization, linear regression, naive bayes classification"
+date: "12/21/2020"
+output:
+  html_document: 
+    toc: yes
+    fig_caption: yes
+    number_sections: yes
+    keep_md: yes
+    highlight: pygments
+    theme: lumen
+  pdf_document:
+    toc: yes
+---
+
+```{r setup, echo = TRUE}
+knitr::opts_chunk$set(include = TRUE)
+# loading in R packages/libraries used in code
+
+# note-- if you do not have a library installed, you should call: 
+# install.packages("PACKAGE_NAME"); to download its package first
+
+library(png);
+library(pROC);
+library(caret);
+library(keras);
+library(e1071);
+library(pander);
+
+library(MASS);
+library(ISLR);
+library(dslabs);
+library(doParallel);
+library(matrixStats);
+library(ModelMetrics);
+
+library(DT);
+library(boot);
+library(ggplot2);
+library(tidyverse);
+library(data.table);
+library(naivebayes);
+library(splitstackshape);
+
+# setting a seed value for reproducibility 
+
+set.seed(1984);
+
+```
+
+# A: Linear Regression (45 points) 
+
+ Recall that in simple linear regression, we model our prediction $\hat{y}$ as a (linear) function of x: 
+ $\hat{y} = \beta_{1}x_i + \beta_{0} + \epsilon_i$
+
+#### A1 (5 points) What are the maximum likelihood estimators for $\beta_0$ and $\beta_1$?  (Note, you do not need to derive them; just look them up and state them.)
+
+The maximum likelihood estimator for $\beta_0 = \hat{y} - (\beta_{1}x_i + \epsilon_i)$
+The maximum likelihood estimator for $\beta_1 = (\frac{1}{x_i})(\hat{y} - (\beta_0 + \epsilon_i))$
+
+
+#### A2 (5 points) Write **your own** R functions to calculate $\beta_1$ and $\beta_0$ given an $x$ and $y$ vector, based on the MLE equations you stated above.
+
+```{r QA2, echo=TRUE, paged.print=TRUE}
+
+beta_calc <- function(xy_vector){
+  
+  beta_vector <- data.frame(xy_vector);
+  colnames(beta_vector) <- c('beta_0', 'beta_1');
+  
+  vector_length <- as.numeric(nrow(beta_vector));
+  temp_val <- 1/vector_length;
+    
+  for(j in (1:vector_length)){
+    
+    x_i <- beta_vector[j, 1];
+    y_hat <- beta_vector[j, 2];
+  
+    beta_0_est <- temp_val;
+    beta_1_est <- temp_val;
+    
+    # - epsilon_i (not provided noise var epsilon_i)
+    beta_0_est <- y_hat - (beta_1_est * x_i);
+    
+    # - (epsilon_i / x_val) (not provided noise var epsilon_i)
+    beta_1_est <- (y_hat - beta_0_est) / x_i;
+    
+    # re-evaluating values against one another
+    beta_0 <- y_hat - (beta_1_est * x_i);
+    beta_1 <- (y_hat - beta_0) / x_i;
+  
+    beta_vector[j, 1] <- beta_0;
+    beta_vector[j, 2] <- beta_1;
+  }
+  
+  return(beta_vector);
+
+}
+
+# testing the function
+beta_test <- data.frame(Auto$weight, Auto$horsepower);
+test_output <- beta_calc(beta_test);
+
+#test_output;
+
+Auto_vector <- data.frame(Auto$weight, Auto$horsepower);
+Auto_betas <- beta_calc(Auto_vector);
+
+Auto_mle <- bind_cols(Auto_betas, 'x_i' = Auto$weight, 'y_hat' = Auto$horsepower);
+
+beta.0 <- Auto_mle$beta_0;
+```
+
+  
+#### A3 (5 points) Load the Auto dataset from the ISLR package, and make a scatterplot of horsepower vs. weight. Clearly label your plot.
+
+```{r QA3, echo=TRUE}
+str(Auto);
+Auto <- na.omit(Auto);
+
+plot_A3 <- plot(x = Auto$horsepower, y = Auto$weight, xlab = "Horsepower", ylab = "Weight", main = "Horsepower vs. Weight");
+```
+
+#### A5 (5 points) Using the functions you wrote above, compute the maximum likelihood estimates of $\beta_1$ and $\beta_0$ given the data (weight $x$ and horsepower $y$).  Plot the data and a line of best fit using the parameters that you estimated. (You can use the R lm() function to check that your estimates are right!)
+
+```{r QA5, echo=TRUE}
+
+mu_x <- mean(Auto$weight);
+mu_y <- mean(Auto$horsepower);
+
+s_x <- sd(Auto$weight);
+s_y <- sd(Auto$horsepower);
+
+r <- cor(Auto$weight, Auto$horsepower);
+
+m_1 <-  r * s_y / s_x;
+b_1 <- mu_y - m_1*mu_x;
+
+m_2 <-  r * s_x / s_y;
+b_2 <- mu_x - m_2 * mu_y;
+
+get_slope <- function(x, y) cor(x, y) * sd(y) / sd(x);
+
+Auto %>% lm(horsepower ~ weight, data = .) %>% .$coef
+
+Auto %>% ggplot(aes(weight, horsepower)) +
+  geom_point() +
+  geom_smooth(method = "lm")
+
+lse <- Auto %>% lm(weight ~ horsepower, data = .) %>% .$coef;
+lse <- data.frame(beta_0 = lse[1], beta_1 = lse[2]);
+
+Auto %>% 
+  ggplot(aes(horsepower, weight)) + 
+  geom_point(alpha = 0.5) + 
+  geom_abline(intercept = b_1, slope = m_1, col = "blue") +
+  geom_abline(intercept = -b_2/m_2, slope = 1/m_2, col = "red") 
+```
+
+#### A6 (5 points) Provide a 95\% confidence interval for your estimates of $\beta_1$ and $\beta_0$ using the analytical formula 
+
+```{r QA6, echo=TRUE}
+Auto_x <- Auto_mle$x_i;
+Auto_xbar <- mean(Auto_x);
+Auto_mult <- qt(.950, df = length(Auto_x) - 1);
+Auto_sigma <- sd(Auto_x);
+Auto_sqrt <- sqrt(length(Auto_x));
+
+# Standard Error
+Auto_stderr <- Auto_mult * (Auto_sigma / Auto_sqrt);
+
+# Lower Bound and Upper Bound of Confidence Interval
+Auto_cf <- Auto_xbar + c(-Auto_stderr, Auto_stderr);
+Auto_cf;
+
+Auto_mle <- bind_cols(Auto_betas, 'x_i' = Auto$weight, 'y_hat' = Auto$horsepower);
+
+n <- 392;
+
+beta.0 <- Auto_mle$beta_0;
+beta.1 <- Auto_mle$beta_1;
+
+# Unsure abt this value
+epsilon <- rt(n, df = n - 1);
+
+x <- Auto_mle$x_i;
+y <- beta.0 + beta.1 * x + epsilon;
+
+SE_uhat <- sd(y);
+u_hat <- SE_uhat / (sqrt(n));
+Var_uhat <- (SE_uhat ^ 2) / n;
+
+coeffs <- data.frame(u_hat, SE_uhat, Var_uhat);
+colnames(coeffs) <- c('uhat', 'SE(uhat)', 'Var(uhat)');
+coeffs;
+
+# 95% confint
+confint_est <- c((u_hat - 2 * SE_uhat), (u_hat + 2 * SE_uhat));
+confint_est;
+```
+
+#### A7 (5 points) Compute a 95% confidence interval for $\beta_1$ and $\beta_0$ using the bootstrap.  (You can use the R boot function to help; you don't need to implement the full bootstrap procedure yourself here)
+
+```{r QA7, echo=TRUE}
+Auto_beta_corr <- cor(Auto_mle$beta_0, Auto_mle$beta_1);
+Auto_xy_corr <- cor(Auto_mle$x_i, Auto_mle$y_hat);
+
+boot_size <- 1000;
+boot_beta_corr <- NULL;
+boot_corr_all <- NULL;
+sample_size <- length(Auto_mle);
+
+for(i in (1:boot_size)){
+  boot_index <- sample(1:sample_size, replace = TRUE)
+  
+  boot_beta_0 <- Auto_betas$beta_0[boot_index]
+  boot_beta_1 <- Auto_betas$beta_1[boot_index]
+  
+  boot_beta_corr <- cor(boot_beta_0, boot_beta_1)
+  boot_corr_all <- c(boot_corr_all, boot_beta_corr)
+}
+
+# Confidence Interval:
+boot_beta_confint <- quantile(boot_corr_all, prob = c(0.050, 0.0950), na.rm = TRUE);
+boot_beta_confint;
+```
+
+#### A8 (5 points) Recall that that the matrix formulation of the OLS estimator is $\hat{\beta}= {(X^TX)}^{-1} X^Ty$  
+Write an R function that implements this (for matrices of arbitrary dimensions).
+
+```{r QA8, echo=TRUE}
+# Estimate variance of the residual noise sigma_hat ^ 2 (MSE) as:
+# sigma_hat ^ 2 = ((y - X ⋅ beta_hat) ^ T ⋅ (y - X ⋅ beta_hat)) / (n - p - 1)
+
+# Estimated covariances for linear regression coeff. can be derived as such:
+# Var_hat(beta_hat) = sigma_hat ^ 2 (X ^ T ⋅ X) ^ (-1)
+
+# Take sqrt of Var_hat(beta_hat) for the standard error for each coefficient
+# Note: off-diagonal terms are estimated co-variances among parameter estimates, 
+# often are closely related to the estimated correlations
+
+Ols_xy <- data.frame(Auto$weight, Auto$horsepower);
+Ols_betas <- beta_calc(Auto_vector);
+
+Ols_mle <- bind_cols(Ols_betas, Ols_xy);
+colnames(Ols_mle) <- c('beta_0', 'beta_1', 'x_i', 'y_hat');
+
+Ols_n <- nrow(Ols_mle); # So we don't have magic #s floating around
+Ols_sigval <- as.vector(Ols_mle$beta_0);
+
+Ols_sigcalc <- function(Ols_mle){
+  
+  for(k in (1:Ols_n)){
+    Ols_sigval[k] <- (1/k) * sum((Ols_mle$y_hat[k] - (Ols_mle$beta_0[k] + Ols_mle$beta_1[k]))^2);
+  }
+  return(Ols_sigval);
+}
+
+Ols_sigsq <- Ols_sigcalc(Ols_mle = Ols_mle);
+Ols_mle$sig_sq <- Ols_sigsq;
+y <- Ols_mle$y_hat;
+
+Ols_lmfit <- lm(Ols_mle$y_hat ~ Ols_mle$beta_0 + 
+  Ols_mle$beta_1 * Ols_mle$x_i + Ols_mle$sig_sq, data = Ols_mle);
+
+summary(Ols_lmfit);
+
+# Ex. from rebeccaferrell.github.io/CSSS508/Homework/template-HW4-key.html
+
+# X <- cbind variables in same order as independent variables in regression:
+X <- Ols_mle;
+
+id_vect <- vector(mode = 'numeric', length(Ols_n));
+id_vect <- rep(1, Ols_n);
+
+X$Intercept <- id_vect;
+
+X$beta_0 <- Ols_mle$beta_0;
+X$beta_1 <- Ols_mle$beta_1;
+X$x_i <- Ols_mle$x_i;
+X$sig_sq <- Ols_mle$sig_sq;
+
+X <- X[c(6, 1:3, 5)];
+
+colnames(X) <- c('Intercept', 'beta_0', 'beta_1', 'x_i', 'sig_sq');
+
+X <- as.matrix.data.frame(X, rownames.force = NA);
+
+# t(X) is the transpose, %*% is matrix multiplication, solve takes the inverse
+# A <- solve(t(X) %*% X)
+
+# alternative solution: cross-product does the same thing
+A <- crossprod(X)
+
+# from looking at beta_hat formula & multiplying any additional terms needed
+beta <- A %*% t(X) %*% y
+
+# filling in formula, as above
+residuals <- y - X %*% beta
+
+p <- ncol(X) - 1
+
+residual_var <- t(residuals) %*% residuals / (n - p - 1)
+residual_var <- as.numeric(residual_var)
+
+# alternative calculation # 1:
+residual_var <- crossprod(residuals) / (n - p - 1)
+residual_var <- as.numeric(residual_var)
+
+# alternative calculation # 2:
+residual_var <- sum(residuals^2) / (n - p - 1)
+
+# covariance matrix of est. regression coefficients: 
+# est. residual variance * solve(t(X) %*% X) we calc. & stored as A earlier
+beta_covar <- residual_var * A
+
+# diag. takes diagonal of matrix, sqrt goes from variance to standard deviation
+beta_SE <- sqrt(diag(beta_covar))
+```
+
+#### A9 (5 points) Generate some example data where the $y$ is a linear function of two independent variables (ie. a plane), with some Gaussian noise added.  Show that the OLS estimator you implemented above correctly recovers the parameters that you used to generate your data.
+
+```{r QA9, echo=TRUE}
+
+# Inputs: x sequence; intercept; slope; noise variance; switch for whether to
+  # return the simulated values, or run a regression and return the coefficients
+# Output: data frame or coefficient vector
+
+sim.gnslrm <- function(x, intercept, slope, sigma.sq, coefficients=TRUE) {
+  n <- length(x)
+  y <- intercept + slope*x + rnorm(n,mean=0,sd=sqrt(sigma.sq))
+  if (coefficients) {
+    return(coefficients(lm(y~x)))
+  } else {
+    return(data.frame(x=x, y=y))
+  }
+}
+
+# Fix an arbitrary vector of x's
+x <- seq(from=-5, to=5, length.out=42)
+
+many.coefs <- replicate(1e4, sim.gnslrm(x=x, 5, -2, 0.1, coefficients=TRUE))
+
+# Histogram of the slope estimates
+hist(many.coefs[2,], breaks=50, freq=FALSE, xlab=expression(hat(beta)[1]),
+     main="")
+
+# Theoretical Gaussian sampling distribution
+theoretical.se <- sqrt(0.1/(length(x)*var(x)))
+curve(dnorm(x,mean=-2,sd=theoretical.se), add=TRUE,
+      col="blue")
+
+# It is a bit hard to use Eq.\ \ref{eqn:sampling-dist-of-hat-beta-1}, because it
+# involves two of the unknown parameters.  We can manipulate it a bit to
+# remove one of the parameters from the probability distribution,
+# \[\hat{\beta}_1 - \beta_1 \sim N(0, \frac{\sigma^2}{n s^2_X})\]
+#but that still has $\sigma^2$ on the right hand side, 
+# so we can't actually calculate anything.  We could write:
+# \[\frac{\hat{\beta}_1 - \beta_1}{\sigma^2/\sqrt{n s^2_X}} \sim N(0,1)\]
+# but now we've got two unknown parameters on the left-hand side, which is awk.
+
+# Sampling Distribution of $\hat{\beta}_0$
+
+# Starting from Eq.\ \ref{eqn:hat-beta-0-in-terms-of-epsilon} rather than 
+# Eq.\ \ref{eqn:hat-beta-1-in-terms-of-epsilon}, an argument exactly parallel 
+# to the one we just went through gives 
+# \[\hat{\beta}_0 \sim N(\beta_0, \frac{\sigma^2}{n}\left(1 + \frac{\overline{x}^2}{s^2_X}\right))\]
+
+# It follows, again by parallel reasoning, that
+# \[\frac{\hat{\beta}_0 - \beta_0}{\sqrt{\frac{\sigma^2}{n}\left(1 + \frac{\overline{x}^2}{s^2_X}\right)}} \sim N(0,1)\]
+# The right-hand side of this equation is admirably simple and easy for us to
+# calculate, but the left-hand side unfortunately involves two unknown
+# parameters, and that complicates any attempt to use it.
+
+# Example from https://rebeccaferrell.github.io/CSSS508/Homework/template-HW4-key.html
+# truth in true_beta, est. by hand in beta, lm way in list summary(calculus_lm)
+
+true_beta <- data.frame(Ols_mle$beta_0, Ols_mle$beta_1);
+
+lm_summary <- as.array(summary(Ols_lmfit)[["coefficients"]][, "Estimate"]);
+
+beta_compare <- data.frame(dim(Ols_mle));
+
+beta_compare$True_beta_0 <- true_beta$Ols_mle$beta_0;
+beta_compare$True_beta_1 <- true_beta$Ols_mle$beta_1;
+beta_compare$beta_0 <- beta[2];
+beta_compare$beta_1 <- beta[3];
+beta_compare$Intercept <- beta[1];
+beta_compare$x_i <- beta[4];
+beta_compare$sig_sq <- beta[5];
+
+beta_compare$lm_Intercept <- lm_summary[1];
+beta_compare$lm_x_i <- lm_summary[3];
+beta_compare$lm_sig_sq <- lm_summary[4];
+beta_compare$lm_beta <- lm_summary[2];
+
+# colnames(beta_compare) <- c("True Beta_0", 'True Beta_1', 'Manual', 'lm_Intercept', 'lm_x_i', 'lm_sig_sq', 'lm_beta');
+
+pander(beta_compare, caption = "Comparison of linear regression parameters estimated manually with those from R's lm().")
+
+# true co-variance uses same formula as est. co-variance--we plug in true var
+# we have the true std. deviation so we square the true std. deviation
+
+true_sigma <- SE_uhat;
+
+true_covar <- true_sigma^2 * A
+true_SE <- sqrt(diag(true_covar))
+
+SE_compare <- cbind(true_SE,
+                    beta_SE,
+                    summary(Ols_lmfit)[["coefficients"]][, "Std. Error"])
+
+colnames(SE_compare) <- c("True SE", "Manual", "lm")
+pander(SE_compare, caption = "Comparison of standard errors of linear regression parameters estimated manually with those from R's lm().")
+
+resid_var_compare <- cbind(true_sigma^2,
+                           residual_var,
+                           summary(Ols_lmfit)[["sigma"]]^2)
+colnames(resid_var_compare) <- c("Truth", "Manual", "lm")
+pander(resid_var_compare, caption = "Comparison of residual variances of manual linear regression with that from R's lm().")
+
+```
+
+# B: Optimization (15 points)
+
+Recall that one of our common strategies for machine learning is to set up an optimization problem in which we seem to minimize some loss function (or equivalently, maximize an objective, such as likelihood).  We can then apply standard non-linear optimization techniques to find parameters for our model that best meet this objective. 
+
+#### B1. (2 pts) Define some quadratic function of your choosing that is convex, and plot it.  How many minima does it have?
+
+Function for the $\theta$ vector: $(\theta_0+\theta_1x_1+\theta_2x_2-y_0)^2$, other variables are arbitrary constants:
+
+Proof of function convex property:
+
+-Function $f(\theta) = \theta_0+\theta_1x_1+\theta_2x_2-y_0$ is linear
+-Function $\phi(t) = t^2$ is convex. 
+
+Suppose $\lambda \in [0,1]$: $$\phi(f(\lambda x +(1-\lambda)y)) = \phi(\lambda f(x)+(1-\lambda)f(y)) \leq \lambda \phi(f(x)) + (1-\lambda)\phi(f(y)).$$
+
+Therefore we can see that the function is indeed quadratic and convex.
+
+#### B2. (3 pts) Use the `optimize` function to find the minimum of your function.  (`optimize` does one dimensional optimization over a specified interval)
+```{r QB2, echo=TRUE}
+
+n = 1000;
+
+x_0 <- 1;
+x_1 <- rnorm(n);
+x_2 <- rnorm(n);
+
+y_0 <- rnorm(n);
+
+theta_0 <- rnorm(n);
+theta_1 <- rnorm(n);
+theta_2 <- rnorm(n);
+
+quadvex_vect <- data.frame(x_0, x_1, x_2, y_0, theta_0, theta_1, theta_2);
+
+opt_func <- function(quadvex_vect){
+  
+  theta_0 <- quadvex_vect[5];
+  theta_1 <- quadvex_vect[6];
+  theta_2 <- quadvex_vect[7];
+  
+  x_0 <- quadvex_vect[1];
+  x_1 <- quadvex_vect[2];
+  x_2 <- quadvex_vect[3];
+  
+  y_0 <- quadvex_vect[4];
+  
+  f_theta <- (theta_0 + theta_1 * x_1 + theta_2 * x_2 - y_0) ^ 2;
+
+  return(f_theta);
+
+}
+
+opt_func_quadvex <- optimize(opt_func, quadvex_vect);
+
+optmin_quadvex <- opt_func_quadvex$minimum;
+optmin_quadvex;
+```
+
+#### B3. (3 pts) Define a function that computes the sum of squared errors (SSE) for a simple linear regression, as a function of a vector **$\beta$** = c($\beta_0$, $\beta_1$) (ie. the intercept and slope), $x$, and $y$
+
+```{r QB3, echo=TRUE}
+
+sse_lm <- function(beta, x, y){
+  
+  beta_0 <- beta[1];
+  beta_0 <- beta[2];
+  
+  sse_df <- data.frame(y, beta_1, x, beta_0);
+  colnames(sse_df) <- c('y', 'beta_1', 'x', 'beta_0');
+  
+  sse_lm_model <- lm(y ~ beta_1 * x + beta_0);
+  lm_SSE <- sum(sse_lm_model$resid ^ 2);
+ 
+  # Extraneous Calculations:
+  lm_SSE_Total <- var(sse_df$y) * (nrow(sse_df) - 1);
+  lm_SSE_Reg <- lm_SSE_Total - lm_SSE;
+  
+  lm_DF_E   <- sse_lm_model$df.residual;
+  lm_DF_Reg <- nrow(sse_df) - 1 - lm_DF_E;
+  
+  lm_MS_Reg <- lm_SSE_Reg / lm_DF_Reg;
+  lm_MSE <- lm_SSE / lm_DF_E;
+  
+  lm_Fstat <- lm_MS_Reg / lm_MSE;
+  lm_pval <- pf(lm_Fstat, lm_DF_Reg, lm_DF_E, lower.tail = FALSE);
+  
+  return(lm_SSE);
+  
+}
+
+```
+
+#### B4. (7 pts) Use the `nlm` function, which does nonlinear minimization, to minimize your SSE function for the regression of weight vs horsepower from the Auto data (as in part A).  Note, you may need to try running nlm over a range of of initial values for the parameters to get a good minimum.  Are the parameters you find this way the same as the parameters found in part A using the formula?
+
+```{r QB4, echo=TRUE}
+
+lm_sse <- function(beta_0, beta_1, x, y){ 
+  
+  sse_df <- data.frame(y, beta_1, x, beta_0);
+  colnames(sse_df) <- c('y', 'beta_1', 'x', 'beta_0');
+  
+  sse_lm_model <- lm(y ~ beta_1 * x + beta_0);
+  lm_SSE <- sum(sse_lm_model$resid ^ 2);
+  
+  return(lm_SSE);
+
+}
+
+x <- Auto$weight;
+y <-  Auto$horsepower;
+
+beta_0 <- Auto_betas$beta_0;
+beta_1 <- Auto_betas$beta_1;
+
+nlm_sse <- nlm(lm_sse, beta_0, beta_1, x, y);
+nlm_sse$minimum;
+
+```
+
+# C: Naive Bayes Classifier (40 points)
+
+Let's construct a couple of simple Naive Bayes classifiers to distinguish between digits.  
+
+We will first use a simple Bernoulli model of binary pixels, and then do the same thing using Gaussians to model the pixels.  
+
+For this problem, you should implement the algorithms yourself -- do not use an R package that implements Naive Bayes.
+
+The MNIST data is available in the `dslabs` package as `mnist`, and contains separate train and test datasets.
+
+#### C1. (3 pts)  Plot 5 examples of each of the digits from the training data (there is a function called draw_mnist_image() defined below that may be helpful, and you can use par() to set up a grid of images).
+
+
+```{r C1}
+
+# Preliminary data exploration/visualization stage
+
+mnist <- read_mnist();
+
+# str(mnist);
+# summary(mnist);
+
+# labels corresponding to this image
+
+table(mnist$train$labels);
+
+# creating a duplicate vector of counts, resetting all to 0
+count_tbl <- table(mnist$train$labels);
+count_tbl[1:10] <- 0;
+
+# splitting data into test/train, fixing column data type
+
+train <- mnist$train;
+test <- mnist$test;
+
+train_x <- train$images;
+train_y <- factor(train$labels);
+
+test_x <- test$images;
+test_y <- factor(test$labels);
+
+# draw_mnist_image function from provided code below
+
+draw_mnist_image <- function(image, label, i) {
+  image(1:28, 1:28, matrix(image[i,], nrow=28)[ , 28:1], 
+    col = gray(seq(0, 1, 0.05)), xlab = "", ylab="")
+  return(as.numeric(label[i]));
+}
+
+# populating counter for integers to get min. 5 instances of each value
+
+create_tbl <- function(image, label, i, count_tbl, runs){
+    
+    while(min(count_tbl) < runs){
+    i <- i + 1;
+    idx_val <- draw_mnist_image(image = train_x, label = train_y, i = i)
+    count_tbl[idx_val] <- count_tbl[idx_val] + 1
+    
+    }
+    
+    return(count_tbl)
+    
+}
+
+count_check <- function(table_check){
+  
+  count_check <- (1:10);
+  
+  for(z in 1:10){
+    count_check[z] <- table_check[z];
+  }
+  
+  return(count_check);
+  
+}
+
+
+table_check <- create_tbl(image = train_x, label = train_y, i = 1, count_tbl = count_tbl, runs = 5);
+digit_count <- count_check(table_check = table_check);
+
+# Alternative method invoking par()
+
+for(j in 0:9){
+  
+  par(mfrow=c(1,1), mar=c(0.1, 0.1, 0.1,0.1));
+  
+  for (i in 1:5){
+    image(1:28, 1:28, matrix(mnist$train$images[mnist$train$labels == j, ][i,], 
+            nrow=28)[ , 28:1], col = gray(seq(0, 1, 0.05)), xlab = "", ylab="")
+  }
+  
+}
+
+```
+
+#### C2. (2 pts)  Construct a binary version of the images by setting a threshold.  (You could just consider any nonzero pixel, or devise a more clever approach if you wish.)
+
+```{r C2, echo = TRUE}
+
+# Normalizing the Data Values to obtain values between 0 and 1 instead of 0-255
+# Will set the threshold to be upper quartile (Q3) (0-0.74 <- 0; .75-1 <- 1;)
+
+train_bin_x <- train_x;
+
+max(train_bin_x); #max value currently 255 for the non-normalized training data
+min(train_bin_x); #min value currently 0 for the non-normalized training data
+mean(train_bin_x); #mean value 33.31842 for the non-normalized training data
+
+train_bin_x <- train_bin_x / 255;
+
+max(train_bin_x); #max value currently 1 for the now normalized training data
+min(train_bin_x); #min value currently 0 for the now normalized training data
+mean(train_bin_x); #mean value 0.1306605 for the now normalized training data
+
+# normalizing testing data as well for consistency (lest we forget later on!)
+
+test_bin_x <- test_x;
+test_bin_x <- test_x;
+
+test_bin_x <- test_bin_x / 255;
+
+max(test_bin_x); #max value currently 1 for the now normalized training data
+min(test_bin_x); #min value currently 0 for the now normalized training data
+mean(test_bin_x); #mean value 0.1325146 for the now normalized training data
+
+# determined binary threshold parameters for the x/image value:
+# for(train_bin_x[k] < .75){train_bin_x[k] <- 0;} else{train_bin_x[k] <- 1;}
+
+bin_val <- function(bin_data, threshold){
+  
+  k <- 1;
+  k_max <- length(bin_data);
+  cutoff <- threshold;
+  
+  for(k in (1:k_max)){
+
+    if(bin_data[k] < cutoff){
+      bin_data[k] <- 0;
+    }
+    
+    else{
+      bin_data[k] <- 1;
+    }
+    
+  }
+    
+    return(bin_data);
+    
+}
+  
+train_bin_val <- bin_val(bin_data = train_bin_x, threshold = .75);
+
+train_bin <- train;
+train_bin$images <- train_bin_val;
+#train_bin <- as.data.frame(train_bin);
+
+test_bin_val <- bin_val(bin_data = test_bin_x, threshold = .75);
+
+test_bin <- test;
+test_bin$images <- test_bin_val;
+#test_bin <- as.data.frame(test_bin);
+
+```
+
+#### C3. (10 pts)  Using a Bernoulli model of each pixel, train a naive bayes model (that is, just calculate the vector of pixel probabilities).  You can just add one pseudocount to each pixel for smoothing.
+
+```{r C3}
+
+# Creating objects to hold the predictor variables (train_bin_x)
+
+train_bern_x <- train_bin$images;
+test_bern_x <- test_bin$images;
+
+# Creating objects to hold the response variables (train_bin_y)
+
+train_bern_y <- train_bin$labels;
+test_bern_y <- train_bin$labels;
+
+train_bern <- as.data.frame(train_bin);
+#train_bern_xfac <- as.factor(train_bern_x);
+
+test_bern <- as.data.frame(test_bin);
+
+train_model_bern <- naiveBayes(formula = labels ~., data = train_bern, alpha = 1); 
+train_pred_bern <- predict(train_model_bern, newdata = test_bern);
+
+#summary(train_pred_bern);
+
+# setting the values in format required for the bernoulli_naive_bayes function
+# performing the process for the train data values of the binom. mnist data
+
+train_X <- as.data.frame(train_bin$images, fix.empty.names = TRUE);
+train_mat_X <- as.matrix(train_X);
+
+train_Y <- as.factor(train_bin$labels);
+# train_priors <- train_model_bern$apriori/sum(bin_priors);
+train_priors <- table(train$labels)/sum(train$labels);
+
+# setting the values in format required for the bernoulli_naive_bayes function
+# repeating the process for the test data values of the binom. mnist data
+
+test_X <- as.data.frame(test_bin$images, fix.empty.names = TRUE);
+test_mat_X <- as.matrix(test_X);
+
+test_Y <- as.factor(test_bin$labels);
+# test_priors <- test_bin$apriori/sum(test_bin$apriori);
+test_priors <- table(test$labels)/sum(test$labels);
+
+test_bin_mat <- as.matrix(test_bin);
+test_bin_mat <- as.numeric_version(test_bin_mat);
+
+train_model_bnb <- bernoulli_naive_bayes(x = train_mat_X, y = train_Y, prior = train_priors, laplace = 1);
+summary(train_model_bnb);
+
+test_df_bnb <- as.data.table(test_mat_X, test_Y);
+test_mat_bnb <- as.matrix(test_df_bnb);
+    
+```
+
+#### C4. (3 pts)  Calculate and plot the observed proportions of each digit in the training data -- these are your priors.
+
+
+```{r C4}
+
+priors <- table(train$labels);
+priortion <- train_model_bern$apriori/sum(priors);
+
+plot(priors, xlab = 'digits', ylab = 'observed count');
+plot(priortion, xlab = 'digits', ylab = 'observed proportions');
+
+bin_priors <- table(train_bin$labels);
+bin_priortion <- train_model_bern$apriori/sum(bin_priors);
+
+plot(bin_priors, xlab = 'digits', ylab = 'observed binom. count');
+plot(bin_priortion, xlab = 'digits', ylab = 'observed binom. proportions');
+
+```
+
+
+#### C5. (2 pts)  Make a plot showing the "average" images of each digit represented by your model.
+
+```{r C5}
+
+avg_pop <- function(train_model_bern){
+  
+  q <- 1;
+  avg_train <- data.table();
+  
+  train_model_bern_2 <- train_model_bern[2];
+  train_model_bern_2_1 <- train_model_bern_2[[1]];
+  
+  avg_train$X <- train_model_bern_2_1[,1];
+  
+  while(q < 784){
+    avg_train[q] <- train_model_bern_2_1[[q]][,1]
+    q <- q + 1;
+  }
+  
+  return(avg_train);
+  
+}
+
+train_avg <- avg_pop(train_model_bern);
+
+avg_train$Y <- as.data.table(train_model_bern[2][[1]][[1:784]][,2]);
+
+setnames(avg_train, c('X', 'Y'));
+
+train_avg[, label := as.factor(train_avg$label)]
+
+train_avg[, mean_X := mean('X'), by = label];
+train_avg[, mean_Y := mean('Y'), by = label];
+  
+avg_dig <- function(train_model_bnb){
+  
+  n <- 1;
+  m <- 1;
+  m1 <- m + 1;
+  m_max <- length(coef(train_model_bnb));
+  
+  add_bnb <- data.table();
+  avg_bnb <- data.table();
+  sum_bnb <- data.table();
+  
+  while(m < m_max){
+    
+    add_bnb[m] <- as.numeric(coef(train_model_bnb)[, m])
+    add_bnb[m1] <- coef(train_model_bnb)[, m1]
+    
+    sum_bnb[m] <- sum(add_bnb[m], add_bnb[m1])
+    avg_bnb[m] <- sum_bnb$m * 0.5
+                       
+    n <- n + 1
+    m <- m + 2
+    
+  }
+  
+  return(as.numeric(avg_bnb));
+
+}
+
+bnb_avg <- avg_dig(train_model_bnb);
+
+avg_dig_im <- function(bnb_model, image_data){
+
+  for(j in 0:9){
+    par(mfrow=c(1,1), mar=c(0.1, 0.1, 0.1,0.1));
+    for (i in 1:20){
+      image(1:28, 1:28, matrix(coef(train_model_bnb)[image_data$labels == j, ][i,], 
+              nrow=28)[ , 28:1], col = gray(seq(0, 1, 0.05)), xlab = "", ylab="")
+    }
+    
+  }
+
+}
+
+
+```
+
+#### C6. (10 pts)  Now, train a model using a Gaussian model for each pixel.  Remember, for each pixel, you will now need to store both a $\mu$ and $\sigma$. To smooth the Gaussians, you may need to add a small amount to each variance to make sure the the variance is never exactly zero; a simple solution for this is to add a small constant fraction of the maximum variance over the pixels.
+
+```{r C6, echo = TRUE}
+
+# setting the values in format required for the gaussian_naive_bayes function
+# performing the process for the train data values of the binom. mnist data
+
+train_X <- as.data.frame(train_bin$images, fix.empty.names = TRUE);
+train_mat_X <- as.matrix(train_X);
+
+train_Y <- as.factor(train_bin$labels);
+# train_priors <- train_model_bern$apriori/sum(bin_priors);
+train_priors <- table(train$labels)/sum(train$labels);
+
+# setting the values in format required for the gaussian_naive_bayes function
+# repeating the process for the test data values of the binom. mnist data
+
+test_X <- as.data.frame(test_bin$images, fix.empty.names = TRUE);
+test_mat_X <- as.matrix(test_X);
+
+test_Y <- as.factor(test_bin$labels);
+# test_priors <- test_bin$apriori/sum(test_bin$apriori);
+test_priors <- table(test$labels)/sum(test$labels);
+
+test_bin_mat <- as.matrix(test_bin);
+test_bin_mat <- as.numeric_version(test_bin_mat);
+
+train_model_gnb <- gaussian_naive_bayes(x = train_mat_X, y = train_Y, prior = train_priors);
+summary(train_model_gnb);
+
+test_df_gnb <- as.data.table(test_mat_X, test_Y);
+test_mat_gnb <- as.matrix(test_df_gnb);
+
+```
+
+#### C7. (3 pts) Using your two models, predict the labels for the test data.  Remember to work with log probabilities, and remember to consider the priors for each digit that come from the training data. 
+
+```{r C7}
+
+# Classification estimates for the bernoulli naive bayes model
+
+head(predict(train_model_bern, newdata = test, type = 'class'));
+head(train_model_bnb %class% test);
+
+pred_bnb <- predict(train_model_bern, newdata = test, type = 'class');
+
+# Posterior probability estimates for the bernoulli naive bayes model
+
+head(predict(train_model_bnb, newdata = test, type = 'prob'));
+head(train_model_bnb %prob% test);
+
+# Classification estimates for the gaussian naive bayes model
+
+head(predict(train_model_gnb, newdata = test, type = 'class'));
+head(train_model_gnb %class% test);
+
+pred_gnb <- predict(train_model_gnb, newdata = test, type = 'class');
+
+# Posterior probability estimates for the gaussian naive bayes model
+
+head(predict(train_model_gnb, newdata = test, type = 'prob'));
+head(train_model_gnb %prob% test);
+
+```
+
+#### C8.  (5 pts) To assess the models, report the confusion matrix for the test data.  (You can either construct it manually, or use a function like confusionMatrix from the caret/e1071 packages which may be more convenient!).   Which digits are most easily confused?
+
+```{r C8}
+
+pred_bnb <- predict(train_model_bern, newdata = test);
+bnb_cmat <- confusionMatrix(actual = factor(pred_bnb), predicted = factor(test$labels));
+
+pred_gnb <- predict(train_model_gnb, newdata = test);
+gnb_cmat <- confusionMatrix(actual = factor(pred_gnb), predicted = factor(test$labels));
+
+```
+
+#### C10. (2 pts) Compute the accuracy, sensitivity, and specificity for the '7' digit (ie. identifying '7's vs. all of the others.)
+
+```{r C10}
+
+bnb_ac7 <- precision(factor(round(pred_bnb)), factor(test$labels));
+bnb_se7 <- sensitivity(factor(round(pred_bnb)), factor(test$labels));
+bnb_sp7 <- specificity(factor(round(pred_bnb)), factor(test$labels));
+
+gnb_ac7 <- precision(factor(round(pred_gnb)), factor(test$labels));
+gnb_se7 <- sensitivity(factor(round(pred_gnb)), factor(test$labels));
+gnb_sp7 <- specificity(factor(round(pred_gnb)), factor(test$labels));
+
+```
