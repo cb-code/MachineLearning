@@ -1,0 +1,831 @@
+---
+title: "Columbia SPS 5335 Fall 2020 HW 3 - C. Blanchard (uni: chb2132) "
+output:
+  html_document: 
+    toc: yes
+    fig_caption: yes
+    number_sections: yes
+    keep_md: yes
+    highlight: pygments
+    theme: lumen
+  pdf_document:
+    toc: yes
+---
+
+
+This homework is intended to give you some practice applying and comparing some of the more sophisticated machine learning algorithms that we have studied on some slightly more realistic data.  Since you will be making use of R library implementations of the algorithms, rather than implementing too much yourself, the code needed to answer these problems should be quite succinct.
+
+
+```{r}
+# loading in libraries, download the package first if not installed already
+
+library(ada);
+#library(KNN);
+library(psych);
+library(e1071);
+library(glmnet);
+library(import);
+library(foreach);
+
+library(AmesHousing);
+library(fastAdaboost);
+library(randomForest);
+library(ModelMetrics);
+
+library(caret);
+library(dslabs);
+library(lattice);
+library(caTools);
+library(tidyverse);
+library(data.table);
+library(ggcorrplot);
+library(matrixStats);
+
+set.seed(1984);
+```
+
+### A: (40 pts) Regularized Regression
+
+We will explore using regularized regression using the `Ames` data which describes properties and sales prices for 2,930 properties in Ames, Iowa (De Cock, 2011).  The data has been cleaned and processed a bit and is available in the AmesHousing R package by calling `make_ames()` from the `AmesHousing` package. This is a fairly realistic, complicated data set that will provide an opportunity to take advantage of some of the more sophisticated methods that we have studied to predict the sale prices using the other variables.
+
+#### A1: (2 pts) Split the data 80/20 into a training set and test set that you can use to evaluate your models.
+
+```{r A1}
+
+amesData <- make_ames();
+
+split_ames <- sample.split(amesData$Sale_Price, SplitRatio = .8, group = NULL);
+
+train_ames <- amesData[split_ames,];
+test_ames <- amesData[!split_ames,];
+
+```
+
+
+#### A2: (8 pts) Exploratory Data analysis:  Make one or two figures that clearly summarize the most important characteristics and relationships among the variables.  Based on what you observe, you may choose to do some manual selection of the variables to use in the rest of your modeling and work with a smaller set of variables.
+
+```{r A2}
+str(train_ames);
+names(train_ames);
+dim(train_ames);
+
+require(psych);
+describe(train_ames);
+
+# checking for mislabeled or blank values and total NA values (train: 0 NA val.)
+
+sum(is.na(train_ames));
+sum(train_ames == '');
+sum(train_ames == 'N/A');
+
+# doing the same for the test data set and checking for NA values as well
+str(test_ames);
+names(test_ames);
+dim(test_ames);
+
+require(psych);
+describe(test_ames);
+
+# Identifying the various diff datatypes in train data (num/integer/factor/char)
+
+train_ames_num_cols <- unlist(lapply(train_ames, is.numeric));
+train_ames_int_cols <- unlist(lapply(train_ames, is.integer));
+train_ames_fact_cols <- unlist(lapply(train_ames, is.factor));
+
+train_ames_char_cols <- unlist(lapply(train_ames, is.character)); # None are char. data!
+
+# Subsetting the training data by the four above data types, same to test data
+
+train_ames_num <- train_ames[, train_ames_num_cols];
+train_ames_int <- train_ames[, train_ames_int_cols];
+train_ames_fact <- train_ames[, train_ames_fact_cols];
+
+train_ames_char <- train_ames[, train_ames_char_cols]; # No data types are character data here
+
+# Converting the integer datatype columns to numeric datatype columns, adding to
+# The subset of data for numeric data column types for correlation matrix plots
+
+train_ames_num$Lot_Area <- as.numeric(train_ames$Lot_Area);
+train_ames_num$Year_Built <- as.numeric(train_ames$Year_Built);
+train_ames_num$Year_Remod_Add <- as.numeric(train_ames$Year_Remod_Add);
+train_ames_num$First_Flr_SF <- as.numeric(train_ames$First_Flr_SF);
+train_ames_num$Second_Flr_SF <- as.numeric(train_ames$Second_Flr_SF);
+train_ames_num$Low_Qual_Fin_SF <- as.numeric(train_ames$Low_Qual_Fin_SF);
+train_ames_num$Gr_Liv_Area <- as.numeric(train_ames$Gr_Liv_Area);
+train_ames_num$Full_Bath <- as.numeric(train_ames$Full_Bath);
+train_ames_num$Half_Bath <- as.numeric(train_ames$Half_Bath);
+train_ames_num$Bedroom_AbvGr <- as.numeric(train_ames$Bedroom_AbvGr);
+train_ames_num$Kitchen_AbvGr <- as.numeric(train_ames$Kitchen_AbvGr);
+train_ames_num$TotRms_AbvGrd <- as.numeric(train_ames$TotRms_AbvGrd);
+train_ames_num$Fireplaces <- as.numeric(train_ames$Fireplaces);
+train_ames_num$Wood_Deck_SF <- as.numeric(train_ames$Wood_Deck_SF);
+
+# Converting the factor datatype columns to numeric datatype columns, adding to
+# The subset of data for numeric data column types for correlation matrix plots
+
+train_ames_num$Sale_Price <- as.numeric(train_ames$Sale_Price);
+train_ames_num$MS_SubClass <- as.numeric(train_ames$MS_SubClass);
+train_ames_num$MS_Zoning <- as.numeric(train_ames$MS_Zoning);
+train_ames_num$Street <- as.numeric(train_ames$Street);
+train_ames_num$Alley <- as.numeric(train_ames$Alley);
+train_ames_num$Lot_Shape <- as.numeric(train_ames$Lot_Shape);
+train_ames_num$Land_Contour <- as.numeric(train_ames$Land_Contour);
+train_ames_num$Utilities <- as.numeric(train_ames$Utilities);
+train_ames_num$Lot_Config <- as.numeric(train_ames$Lot_Config);
+train_ames_num$Land_Slope <- as.numeric(train_ames$Land_Slope);
+train_ames_num$Neighborhood <- as.numeric(train_ames$Neighborhood);
+train_ames_num$Condition_1 <- as.numeric(train_ames$Condition_1);
+train_ames_num$Condition_2 <- as.numeric(train_ames$Condition_2);
+train_ames_num$Bldg_Type <- as.numeric(train_ames$Bldg_Type);
+train_ames_num$House_Style <- as.numeric(train_ames$House_Style);
+train_ames_num$Overall_Qual <- as.numeric(train_ames$Overall_Qual);
+
+# Identifying the various diff. datatypes in test data (num/integer/factor/char)
+
+test_ames_num_cols <- unlist(lapply(test_ames, is.numeric));
+test_ames_int_cols <- unlist(lapply(test_ames, is.integer));
+test_ames_fact_cols <- unlist(lapply(test_ames, is.factor));
+test_ames_char_cols <- unlist(lapply(test_ames, is.character));
+
+# Subsetting the training data by the four above data types, same to test data
+
+test_ames_num <- test_ames[, test_ames_num_cols];
+test_ames_int <- test_ames[, test_ames_int_cols];
+test_ames_fact <- test_ames[, test_ames_fact_cols];
+test_ames_char <- test_ames[, test_ames_char_cols]; # No data types are character data here
+
+# Converting the integer datatype columns to numeric datatype columns, adding to
+# The subset of data for numeric data column types for correlation matrix plots
+
+test_ames_num$Lot_Area <- as.numeric(test_ames$Lot_Area);
+test_ames_num$Year_Built <- as.numeric(test_ames$Year_Built);
+test_ames_num$Year_Remod_Add <- as.numeric(test_ames$Year_Remod_Add);
+test_ames_num$First_Flr_SF <- as.numeric(test_ames$First_Flr_SF);
+test_ames_num$Second_Flr_SF <- as.numeric(test_ames$Second_Flr_SF);
+test_ames_num$Low_Qual_Fin_SF <- as.numeric(test_ames$Low_Qual_Fin_SF);
+test_ames_num$Gr_Liv_Area <- as.numeric(test_ames$Gr_Liv_Area);
+test_ames_num$Full_Bath <- as.numeric(test_ames$Full_Bath);
+test_ames_num$Half_Bath <- as.numeric(test_ames$Half_Bath);
+test_ames_num$Bedroom_AbvGr <- as.numeric(test_ames$Bedroom_AbvGr);
+test_ames_num$Kitchen_AbvGr <- as.numeric(test_ames$Kitchen_AbvGr);
+test_ames_num$TotRms_AbvGrd <- as.numeric(test_ames$TotRms_AbvGrd);
+test_ames_num$Fireplaces <- as.numeric(test_ames$Fireplaces);
+test_ames_num$Wood_Deck_SF <- as.numeric(test_ames$Wood_Deck_SF);
+
+# Converting the factor datatype columns to numeric datatype columns, adding to
+# The subset of data for numeric data column types for correlation matrix plots
+
+test_ames_num$Sale_Price <- as.numeric(test_ames$Sale_Price);
+test_ames_num$MS_SubClass <- as.numeric(test_ames$MS_SubClass);
+test_ames_num$MS_Zoning <- as.numeric(test_ames$MS_Zoning);
+test_ames_num$Street <- as.numeric(test_ames$Street);
+test_ames_num$Alley <- as.numeric(test_ames$Alley);
+test_ames_num$Lot_Shape <- as.numeric(test_ames$Lot_Shape);
+test_ames_num$Land_Contour <- as.numeric(test_ames$Land_Contour);
+test_ames_num$Utilities <- as.numeric(test_ames$Utilities);
+test_ames_num$Lot_Config <- as.numeric(test_ames$Lot_Config);
+test_ames_num$Land_Slope <- as.numeric(test_ames$Land_Slope);
+test_ames_num$Neighborhood <- as.numeric(test_ames$Neighborhood);
+test_ames_num$Condition_1 <- as.numeric(test_ames$Condition_1);
+test_ames_num$Condition_2 <- as.numeric(test_ames$Condition_2);
+test_ames_num$Bldg_Type <- as.numeric(test_ames$Bldg_Type);
+test_ames_num$House_Style <- as.numeric(test_ames$House_Style);
+test_ames_num$Overall_Qual <- as.numeric(test_ames$Overall_Qual);
+
+# shifting the y/target variable (sale_price) to the first column in train data
+
+names(train_ames_num);
+
+train_ames_num <- train_ames_num[c(33, 1:32, 34:50)];
+
+train_ames_num_x <- train_ames_num[c(2:50)];
+train_ames_num_y <- train_ames_num[1];
+
+# plotting the distribution of the target variable, we can see shape of the data
+
+sale_price_dist <- ggplot(train_ames_num_y, aes(x = scale(Sale_Price))) + 
+    geom_histogram(bins = 50);
+
+sale_price_dist;
+
+# creating ggplot2 correlation matrix of parameters using ggcorrplot & corr fx's
+
+train_ames_cor_mat <- cor(train_ames_num_x);
+
+train_ames_cor_plot <- ggcorrplot(corr = train_ames_cor_mat, ggtheme = 
+    ggplot2::theme_classic(), title = "Numeric Train Data", show.legend = TRUE, 
+    legend.title = "Correlation Legend", colors = c("blue", "pink"), sig.level =
+    0.05, lab_size = 0.5, tl.cex = 7, insig = 'blank');
+
+train_ames_cor_plot;
+
+# visualizing correlation matrix, here using hierarchical clustering
+
+train_ames_hiClust <- ggcorrplot(corr = train_ames_cor_mat, hc.order = TRUE, title = 
+    "Numeric Train Data - HiClust", show.legend = TRUE, legend.title = "Legend", 
+    colors = c("green", "red"), sig.level = 0.05, tl.cex = 7, insig = 'blank');
+
+train_ames_hiClust;
+
+# creating correlation matrix of p-values for vars using ggcorrplot's cor_pmat()
+
+train_ames_pVal_cor_mat <- cor_pmat(train_ames_cor_mat);
+train_ames_pVal_cor_mat;
+
+train_ames_pVal_mat <- ggcorrplot(corr = train_ames_cor_mat, p.mat = 
+    train_ames_pVal_cor_mat, hc.order = TRUE, type = "lower", insig = "blank");
+train_ames_pVal_mat;
+
+train_ames_cor_dat <- train_ames_pVal_mat$data;
+
+train_ames_cor_sig <- train_ames_cor_dat[order(train_ames_cor_dat$signif, decreasing = TRUE),];
+train_ames_abs_cor <- train_ames_cor_dat[order(train_ames_cor_dat$abs_corr, decreasing = TRUE),];
+
+# list the most significant variables
+
+train_ames_vars <- data.table();
+
+train_ames_vars$sig1 <- head(train_ames_cor_sig$Var1, 25);
+train_ames_vars$sig2 <- head(train_ames_cor_sig$Var2, 25);
+
+train_ames_vars$abs1 <- head(train_ames_abs_cor$Var1, 25);
+train_ames_vars$abs2 <- head(train_ames_abs_cor$Var2, 25);
+
+train_ames_sig_vars <- as.character(unique(train_ames_vars$sig1[1:25]),
+  unique(train_ames_vars$sig2[1:25]), unique(train_ames_vars$abs1[1:25]), 
+  unique(train_ames_vars$abs2[1:25]));
+
+names(train_ames_num_x);
+
+train_ames_sig_x <- train_ames_num_x[, c(2, 13, 20, 8, 25, 5, 22, 23, 9, 10, 49, 44, 35, 47, 14, 6, 11, 26, 33, 36, 18)];
+
+train_ames_params <- names(train_ames_sig_x);
+train_ames_sig <- train_ames[, train_ames_params];
+
+train_ames_sig$Sale_Price <- train_ames$Sale_Price;
+train_ames_sig <- train_ames_sig[c(22, 1:21)];
+    
+```
+#### A3: (5 pts) As a starting point, fit a regular multiple regression model to predict house prices, using forward variable selection.
+
+```{r A3}
+
+# Forward selection for multiple regression model using sig params from earlier
+
+train_ames_sig_mod_start = lm(train_ames_sig$Sale_Price ~ 1, data = train_ames_sig);
+
+train_ames_sig_mod_stop = lm(train_ames_sig$Sale_Price ~ 1, data = train_ames_sig);
+
+train_ames_sig_mod_full = lm(train_ames_sig$Sale_Price ~., data = train_ames_sig);
+
+train_ames_sig_fwdStep = step(train_ames_sig_mod_start, scope = list(upper = 
+    train_ames_sig_mod_full, lower = train_ames_sig_mod_stop), direction = 'forward');
+
+# Forward selection for multiple regression model using original data (all vars)
+
+train_ames_all_mod_start = lm(train_ames$Sale_Price ~ 1, data = train_ames);
+
+train_ames_all_mod_stop = lm(train_ames$Sale_Price ~ 1, data = train_ames);
+
+train_ames_all_mod_full = lm(train_ames$Sale_Price ~., data = train_ames);
+
+train_ames_all_fwdStep = step(train_ames_all_mod_start, scope = list(upper = 
+    train_ames_all_mod_full, lower = train_ames_all_mod_stop), direction = 'forward');
+
+# displaying summary of the forward step model results and plotting the model
+
+summary(train_ames_sig_fwdStep);
+plot(train_ames_sig_fwdStep);
+
+# displaying summary of all-var forward step model results + plotting the model
+
+summary(train_ames_all_fwdStep);
+plot(train_ames_all_fwdStep);
+
+# now we will remove the parameters that are not sufficiently significant here:
+
+fwdStep_mod1 <- lm(formula = train_ames_sig$Sale_Price ~ Overall_Qual + Gr_Liv_Area + 
+    Neighborhood + MS_SubClass + Bsmt_Full_Bath + Garage_Cars + Total_Bsmt_SF + 
+    Bsmt_Unf_SF, data = train_ames_sig);
+
+pred_fwdStep_mod1 <- predict(fwdStep_mod1, newdata = test_ames);
+
+# removing the parameters that are not sufficiently significant for full dataset
+
+# creating dummy variables for the train data, to select particular categ. vars.
+
+dummy_train_ames <- fastDummies::dummy_cols(train_ames);
+dummy_test_ames <- fastDummies::dummy_cols(test_ames);
+
+dummy_train_ames <-  select(dummy_train_ames, -c(MS_SubClass, MS_Zoning, Street, Alley, 
+    Lot_Shape, Land_Contour, Utilities, Lot_Config, Land_Slope, Neighborhood, 
+    Condition_1, Condition_2, Bldg_Type, House_Style, Overall_Qual, 
+    Overall_Cond, Roof_Style, Roof_Matl, Exterior_1st, Exterior_2nd, 
+    Mas_Vnr_Type, Exter_Qual, Exter_Cond,Foundation, Bsmt_Qual, Bsmt_Cond,
+    Bsmt_Exposure, BsmtFin_Type_1, BsmtFin_Type_2, Heating, Heating_QC, 
+    Central_Air, Electrical, Kitchen_Qual, Functional, Fireplace_Qu, 
+    Garage_Type, Garage_Finish, Garage_Qual, Garage_Cond, Paved_Drive, Pool_QC,
+    Fence, Misc_Feature, Sale_Type, Sale_Condition));
+
+dummy_test_ames <-  select(dummy_test_ames, -c(MS_SubClass, MS_Zoning, Street, Alley, 
+    Lot_Shape, Land_Contour, Utilities, Lot_Config, Land_Slope, Neighborhood, 
+    Condition_1, Condition_2, Bldg_Type, House_Style, Overall_Qual, 
+    Overall_Cond, Roof_Style, Roof_Matl, Exterior_1st, Exterior_2nd, 
+    Mas_Vnr_Type, Exter_Qual, Exter_Cond,Foundation, Bsmt_Qual, Bsmt_Cond,
+    Bsmt_Exposure, BsmtFin_Type_1, BsmtFin_Type_2, Heating, Heating_QC, 
+    Central_Air, Electrical, Kitchen_Qual, Functional, Fireplace_Qu, 
+    Garage_Type, Garage_Finish, Garage_Qual, Garage_Cond, Paved_Drive, Pool_QC,
+    Fence, Misc_Feature, Sale_Type, Sale_Condition));
+
+# Fixing train column name: Roof_Matl_Tar&Grv was not compatible (bc ampersand)
+
+name_fix_train <- colnames(dummy_train_ames);
+name_fix_train[173] <- 'Roof_Matl_TarGrv';
+
+colnames(dummy_train_ames) <- name_fix_train;
+
+# Fixing test column name: Roof_Matl_Tar&Grv was not compatible (bc ampersand)
+
+name_fix_test <- colnames(dummy_test_ames);
+name_fix_test[173] <- 'Roof_Matl_TarGrv';
+
+colnames(dummy_test_ames) <- name_fix_test;
+
+# Training model with the significant variables (possible bc. of dummy columns)
+
+fwdStep_mod2 <- lm(formula = Sale_Price ~ Overall_Qual_Excellent +
+    Overall_Qual_Very_Excellent + Gr_Liv_Area + Neighborhood_Somerset + 
+    Neighborhood_Northridge_Heights + Neighborhood_Crawford + 
+    Neighborhood_Northridge + Neighborhood_Stone_Brook + 
+    Neighborhood_Green_Hills + MS_SubClass_Duplex_All_Styles_and_Ages +
+    MS_SubClass_One_Story_PUD_1946_and_Newer + 
+    MS_SubClass_Two_Story_PUD_1946_and_Newer + 
+    MS_SubClass_PUD_Multilevel_Split_Level_Foyer + Bsmt_Exposure_Gd +
+    Bsmt_Exposure_No + Roof_Matl_CompShg + Roof_Matl_Metal + Roof_Matl_Roll +
+    Roof_Matl_TarGrv + Roof_Matl_WdShake + Roof_Matl_WdShngl + 
+    Misc_Feature_Gar2 + Misc_Feature_None + Misc_Feature_Othr + 
+    Misc_Feature_Shed + Misc_Feature_TenC + Year_Built + Total_Bsmt_SF +
+    Bsmt_Unf_SF + Condition_2_PosN + Sale_Condition_Normal + 
+    Sale_Condition_Partial + Kitchen_Qual_Fair + Kitchen_Qual_Good +
+    Kitchen_Qual_Typical + Bsmt_Qual_Good + Bsmt_Qual_Typical + Fireplaces +
+    Functional_Typ + Condition_1_Norm + Pool_QC_No_Pool + Screen_Porch +
+    Mas_Vnr_Area + Lot_Area, data = dummy_train_ames);
+
+pred_fwdStep_mod2 = predict(fwdStep_mod2, newdata = dummy_test_ames);
+
+# creating a function we can run to provide the metrics in a streamlined manner
+# for the various models and their prediction performance of the test dataset
+
+model_metrics <- function(data, target, model, prediction){
+    
+    N <- length(prediction);
+    
+    res <- data[,target] - prediction;
+    res_sqr <- res ** 2;
+ 
+    R_sqr <- as.character(round(summary(model)$r.squared, 2));
+    adj_R_sqr <- as.character(round(summary(model)$adj.r.squared, 2));
+
+    print('Adjusted R-squared: '); 
+    print(adj_R_sqr);
+
+    print('RMSE :'); 
+    print(as.character(round(sqrt(sum(res_sqr)/N), 2)));
+
+}
+
+fwdStep_mod1_metrics <- model_metrics(data = test_ames, target = 'Sale_Price', model = 
+    fwdStep_mod1, prediction = pred_fwdStep_mod1);
+
+fwdStep_mod2_metrics <- model_metrics(data = dummy_test_ames, target = 'Sale_Price', model = 
+    fwdStep_mod2, prediction = pred_fwdStep_mod2);
+
+```
+
+#### A4 (5 pts) Fit a ridge regression model to predict house prices
+
+```{r A4}
+
+x_ridge <- model.matrix(Sale_Price ~., -1, data = dummy_train_ames);
+y_ridge <- dummy_train_ames$Sale_Price;
+
+# since alpha is the mixing param. for elastic net, alpha = 0 refers to ridge:
+
+ridge_mod1 <- glmnet(x = x_ridge, y = y_ridge, alpha = 0);
+
+# plotting our ridge regression model before performing cross-validation on it:
+
+plot_ridge_mod1 <- plot(ridge_mod1, xvar = 'lambda', label = TRUE);
+
+# performing cross-validation for our ridge regression model, default cv = 10:
+
+cv_ridge_mod1 <- cv.glmnet(x = x_ridge, y = y_ridge, alpha = 0);
+
+plot_cv_ridge_mod1 <- plot(cv_ridge_mod1, label = TRUE);
+
+# finding optimal (minimum) lambda value from cross-validation results:
+
+min_lambda_ridge <- cv_ridge_mod1$lambda.min;
+
+ridge_mod2 <- glmnet(x = x_ridge, y = y_ridge, alpha = 0, lambda = min_lambda_ridge);
+
+# coefficents of the features for updated ridge regression model w/ min lambda:
+
+coef_ridge_mod2 <- coef(ridge_mod2);
+
+# performing model evaluation for the ridge regression model on the test data:
+
+# x_train <- model.matrix(dummy_train$Sale_Price ~., dummy_train)[, -dummy_train$Sale_Price];
+x_test_ridge <- model.matrix(dummy_test_ames$Sale_Price ~., dummy_test_ames)[, -dummy_test_ames$Sale_Price];
+
+pred_ridge_mod2 <- predict(ridge_mod2, x_test_ridge);
+
+# computing the model performance metrics for our revised ridge regression model
+
+rmse_ridge_mod2 <- RMSE(pred_ridge_mod2, dummy_test_ames$Sale_Price);
+rsq_ridge_mod2 <- R2(pred_ridge_mod2, dummy_test_ames$Sale_Price);
+
+print('Ridge Model - RMSE: ');
+print(rmse_ridge_mod2);
+
+print('Ridge Model - R-Squared: ');
+print(rsq_ridge_mod2);
+```
+
+#### A5 (5 pts) Fit a lasso model to predict house prices.
+
+```{r A5}
+
+x_lasso <- model.matrix(Sale_Price ~., -1, data = dummy_train_ames);
+y_lasso <- dummy_train_ames$Sale_Price;
+
+# running lasso regression model on training data, alpha parameter = 1 for lasso
+# since alpha is the mixing param. for elastic net, alpha = 1 refers to lasso:
+
+lasso_mod1 <- glmnet(x = x_lasso, y = y_lasso, alpha = 1);
+
+# plotting our ridge regression model before performing cross-validation on it:
+
+plot_lasso_mod1 <- plot(lasso_mod1, xvar = 'lambda', label = TRUE);
+
+# performing cross-validation for our ridge regression model, default cv = 10:
+
+cv_lasso_mod1 <- cv.glmnet(x = x_lasso, y = y_lasso, alpha = 1);
+
+# finding optimal (minimum) lambda value from cross-validation results:
+
+min_lambda_lasso <- cv_lasso_mod1$lambda.min;
+
+# performing model evaluation for updated (min lambda) lasso model on test data:
+
+lasso_mod2 <- glmnet(x = x_lasso, y = y_lasso, alpha = 1, lambda = min_lambda_lasso);
+
+# coefficents of the features for updated ridge regression model w/ min lambda:
+
+coef_lasso_mod2 <- coef(lasso_mod2);
+
+# computing the model performance metrics for our revised ridge regression model
+
+x_test_lasso <- model.matrix(dummy_test_ames$Sale_Price ~., dummy_test_ames)[, -dummy_test_ames$Sale_Price];
+
+pred_lasso_mod2 <- predict(lasso_mod2, x_test_lasso);
+
+rmse_lasso_mod2 <- RMSE(pred_lasso_mod2, dummy_test_ames$Sale_Price);
+rsq_lasso_mod2 <- R2(pred_lasso_mod2, dummy_test_ames$Sale_Price);
+
+print('Lasso Model - RMSE: ');
+print(rmse_lasso_mod2);
+
+print('Lasso Model - R-Squared: ');
+print(rsq_lasso_mod2);
+```
+
+#### A6: (5 pts) What are the most important variables in each of your models of house prices?  Are they they same or different across the different models?
+
+```{r A6}
+
+# Important variables in forward stepwise
+
+fwdStep_vars <- varImp(fwdStep_mod2);
+fwdStep_vars$Overall <- sort(fwdStep_vars$Overall, decreasing = TRUE);
+fwdStep_impVars <- (head(fwdStep_vars, 25));
+
+# Important variables in ridge regression model
+
+ridge_vars <- data.table();
+
+ridge_vars$labels <- coef_ridge_mod2@Dimnames[1];
+ridge_vars$Overall <- varImp(ridge_mod2, lambda = min_lambda_ridge);
+  
+ridge_vars <- ridge_vars[order(ridge_vars$Overall, decreasing = TRUE)];
+ridge_impVars <- head(ridge_vars, 25);
+
+# Important variables in lasso model
+
+lasso_vars <- data.table();
+
+lasso_vars$labels <- coef_lasso_mod2@Dimnames[1];
+lasso_vars$Overall <- varImp(lasso_mod2, lambda = min_lambda_lasso);
+  
+lasso_vars <- ridge_vars[order(lasso_vars$Overall, decreasing = TRUE)];
+lasso_impVars <- head(lasso_vars, 25);
+
+# As you can see there is a bit of variety in the three different models:
+# 1. fwdStep linear regression, 2. ridge regression, 3. lasso regression
+# not only in the various coefficient/importance values/hierarchies of the
+# various variables, but in their relative rankings as well.
+
+```
+
+#### A7: (10 pts) If you were implementing a system to predict house prices, which of the methods explored do you believe would be the best?  Briefly justify your choice. 
+
+*If I were implementing a system to predict home prices, I would likely seek to implement the system that has the greatest accuracy in a broad run of tests/over the course of many different instances of testing data, as I would want a model that is not significantly difficult or complicated to implement, but otherwise one that is going to provide me with the greatest accuracy, which serves as a fairly dependable predictor, to a good degree as well.
+
+Based upon the results of the tests above, I would say that we can look at the *
+
+### B: (50 pts) Classification
+
+We will explore building some models to classify biopsy image data as either benign or malignant, using the `brca` dataset from the `dslabs` package. Fine-needle Aspirate (FNA) biopsies were taken from 569 patients (212 with cancer, and 357 with benign fibrocystic breast masses). These biopsies are spread onto a slide, processed and stained to produce images of cell nuclei. The data comes from the paper “Computerized Breast Cytologic Diagnosis” by Wolberg et al. (1995) and this data has been widely used as a test case for different machine learning methods.
+
+Ordinarily, a pathologist would look at the images from the slides to judge whether the biopsy is likely to be from a tumor or a benign mass. Here, a computer program was first used to automatically extract 30 different relatively simple geometric features from the images, such as the average radius of nuclei, area, symmetry, etc. We will attempt to use these features to classify the samples as cancer or benign, using machine learning methods.
+
+The data is found in the brca object from the dslabs package. This object is just an R list with the features in a in the `brca$x` matrix, and the labels (benign or malignant) that we will predicting are stored in `brca$y`, a 1-d vector.
+
+#### B1. (2 pts) Split the data into a training set (80%) and test set (20%), which we will hold out for final evaluation of our models.  Also, generate a scaled version of the test / training data.
+
+```{r B1}
+
+#brca_data <- dslabs::brca;
+data_brca <- data(brca);
+
+dim(brca$x);
+
+brca_x <- table(brca$x);
+brca_y <- table(brca$y);
+
+split_brca <- sample.split(Y = brca$y, SplitRatio = .8);
+#split_brca <- createDataPartition(y = brca$y, p = 0.8, list = FALSE);
+
+train_split <- which(split_brca);
+
+train_x <- brca$x[train_split,];
+train_y <- brca$y[train_split];
+
+train_x_dat <- data.table(train_x)
+train_brca <- cbind(y = train_y, train_x_dat);
+
+test_split <- which(!split_brca);
+
+test_x <- brca$x[test_split,];
+test_y <- brca$y[test_split];
+
+test_x_dat <- data.table(test_x)
+test_brca <- cbind(y = test_y, test_x_dat);
+
+#train_brca <- train_brca[1:2];
+#train_brca_dat <- data.table(train_brca$x);
+
+#train_brca_data <- cbind(y = train_brca$y, train_brca_dat);
+#train_brca <- train_brca_data;
+
+# Scaled version of the brca data
+
+x_centered <- sweep(brca$x,2,colMeans(brca$x));
+x_scaled <- sweep(x_centered,2, colSds(brca$x),FUN="/");
+
+```
+
+#### B2. (8 pts) Exploratory data analysis: Generate one or two plots that summarize the characteristics or relationships that you believe will most be important to keep in mind as you construct your models.  Please make sure that your plots are clear and legible (you may need to explore with a variety of different plots, but then decide on one or two that clearly show the characteristics that are important.).  Briefly summarize what you observe.
+
+```{r B2}
+
+head(brca$x);
+head(brca$y);
+
+summary(brca$y);
+
+# proportion
+prop.table(table(brca$y));
+
+## some correlation 
+corr_mat <- cor(brca$x);
+#corrplot(corr_mat);
+
+```
+
+#### B3. (25 pts) Train a classifier for the brca data using each of the following algorithms.  If there are hyperparameters, these should be selected using cross-validation.  You can (and should) use the built-in R packages that implement these algorithms.  For each algorithm, generate the confusion matrix, and report your classification performance (sensitivity, specificity, and f1 score) on the held-out test data.
+
+a. (5 pts) KNN
+
+```{r B3 a}
+
+#brca_knn <- knnreg(formula = y ~., data = train_brca, k = 5);
+
+train_brca_knn <- train(y ~., method = 'knn', data = train_brca);
+train_brca_knn$bestTune;
+
+pred_brca_knn <- predict(train_brca_knn, type = 'raw', newdata = test_brca);
+
+knn_conMat <- confusionMatrix(actual = brca, pred_brca_knn);
+
+knn_recall <- recall(actual = test_brca$y, pred_brca_knn, cutoff = 0);
+knn_sens <- sensitivity(actual = test_brca$y, pred_brca_knn, cutoff = 0);
+knn_tpr <- tpr(actual = test_brca$y, pred_brca_knn, cutoff = 0);
+knn_spec <- specificity(actual = test_brca$y, pred_brca_knn, cutoff = 0);
+knn_f1 <- f1Score(actual = test_brca$y, pred_brca_knn, cutoff = 0.5);
+
+knn_metrics <- data.table(knn_conMat, knn_sens, knn_spec, knn_f1);
+colnames(knn_metrics) <- c('Confusion Matrix X', 'Confusion Matrix Y', 
+                           'Sensitivity', 'Specificity', 'F1 Score');
+
+print('KNN Model Metrics');
+knn_metrics;
+
+```
+
+b. (5 pts) Logistic Regression 
+
+```{r B3 b}
+
+train_brca_lgB <- train(y ~., method = 'LogitBoost', data = train_brca);
+
+train_brca_lgB$bestTune;
+
+pred_brca_lgB <- predict(train_brca_lgB, type = 'raw', newdata = test_brca);
+
+lgB_conMat <- confusionMatrix(actual = test_brca$y, pred_brca_lgB, cutoff = 0);
+
+lgB_recall <- recall(actual = test_brca$y, pred_brca_lgB, cutoff = 0);
+lgB_sens <- sensitivity(actual = test_brca$y, pred_brca_lgB, cutoff = 0);
+lgB_tpr <- tpr(actual = test_brca$y, pred_brca_lgB, cutoff = 0);
+lgB_spec <- specificity(actual = test_brca$y, pred_brca_lgB, cutoff = 0);
+lgB_f1 <- f1Score(actual = test_brca$y, pred_brca_lgB, cutoff = 0.5);
+
+lgB_metrics <- data.table(lgB_conMat, lgB_sens, lgB_spec, lgB_f1);
+colnames(lgB_metrics) <- c('Confusion Matrix X', 'Confusion Matrix Y', 
+                           'Sensitivity', 'Specificity', 'F1 Score');
+
+print('Logistic Boosted Model Metrics');
+lgB_metrics;
+
+```
+
+c. (5 pts) Decision Trees (for the decision tree, please also show a picture of the resulting tree!)
+
+```{r B3 c}
+
+train_brca_rpar <- train(y ~., method = 'rpart', data = train_brca);
+train_brca_rpar$bestTune;
+
+pred_brca_rpar <- predict(train_brca_rpar, type = 'raw', newdata = test_brca);
+
+rpar_conMat <- confusionMatrix(actual = brca$y, pred_brca_rpar, cutoff = 0);
+
+rpar_recall <- recall(actual = brca$y, pred_brca_rpar, cutoff = 0);
+rpar_sens <- sensitivity(actual = brca$y, pred_brca_rpar, cutoff = 0);
+rpar_tpr <- tpr(actual = brca$y, pred_brca_rpar, cutoff = 0);
+rpar_spec <- specificity(actual = brca$y, pred_brca_rpar, cutoff = 0);
+rpar_f1 <- f1Score(actual = brca$y, pred_brca_rpar, cutoff = 0.5);
+
+rpar_metrics <- data.table(rpar_conMat, rpar_sens, rpar_spec, rpar_f1);
+colnames(rpar_metrics) <- c('Confusion Matrix X', 'Confusion Matrix Y', 
+                           'Sensitivity', 'Specificity', 'F1 Score');
+
+print('CART - rpart Model Metrics');
+rpar_metrics;
+
+train_brca_adb <- adaboost(y ~., data = train_brca, nIter = 21);
+tree_brca_adb <- get_tree(train_brca_adb, tree_num = 20);
+tree_brca_adb <- as.dendrogram(tree_brca_adb)
+
+```
+
+d. (5 pts) Random Forests (include a plot showing the variable importance)
+
+```{r B3 d}
+
+train_brca_prf <- train(y ~., method = 'parRF', data = train_brca);
+train_brca_prf$bestTune;
+
+pred_brca_prf <- predict(train_brca_prf, type = 'raw', newdata = brca);
+
+prf_conMat <- confusionMatrix(actual = brca$y, pred_brca_prf, cutoff = 0);
+
+prf_recall <- recall(actual = brca$y, pred_brca_prf, cutoff = 0);
+prf_sens <- sensitivity(actual = brca$y, pred_brca_prf, cutoff = 0);
+prf_tpr <- tpr(actual = brca$y, pred_brca_prf, cutoff = 0);
+prf_spec <- specificity(actual = brca$y, pred_brca_prf, cutoff = 0);
+prf_f1 <- f1Score(actual = brca$y, pred_brca_prf, cutoff = 0.5);
+
+prf_metrics <- data.table(prf_conMat, prf_sens, prf_spec, prf_f1);
+colnames(prf_metrics) <- c('Confusion Matrix X', 'Confusion Matrix Y', 
+                           'Sensitivity', 'Specificity', 'F1 Score');
+
+print('Parallel Random Forest Model Metrics');
+prf_metrics;
+
+```
+
+e. (5 pts) Neural nets (I suggest using the r `neuralnet` package; you can choose which variables to use based on your experience with the other models..)
+
+```{r B3 e}
+
+library(neuralnet);
+
+train_brca_net <- train(y ~., method = 'neuralnet', data = train_brca);
+train_brca_net$bestTune;
+
+pred_brca_net <- predict(train_brca_net, type = 'raw', newdata = brca);
+
+net_conMat <- confusionMatrix(actual = brca$y, pred_brca_net, cutoff = 0);
+
+net_recall <- recall(actual = brca$y, pred_brca_net, cutoff = 0);
+net_sens <- sensitivity(actual = brca$y, pred_brca_net, cutoff = 0);
+net_tpr <- tpr(actual = brca$y, pred_brca_net, cutoff = 0);
+net_spec <- specificity(actual = brca$y, pred_brca_net, cutoff = 0);
+net_f1 <- f1Score(actual = brca$y, pred_brca_net, cutoff = 0.5);
+
+net_metrics <- data.table(net_conMat, net_sens, net_spec, net_f1);
+colnames(net_metrics) <- c('Confusion Matrix X', 'Confusion Matrix Y', 
+                           'Sensitivity', 'Specificity', 'F1 Score');
+
+print('Neural Net Model Metrics');
+net_metrics;
+
+library(MASS)
+nnetFit <- train(TrainData, TrainClasses,
+                 method = "nnet",
+                 preProcess = "range",
+                 tuneLength = 2,
+                 trace = FALSE,
+                 maxit = 100)
+
+
+```
+
+#### B4. (10 pts) Which of these algorithms do you believe would best for this problem?  Briefly justify your choice. 
+
+*I think that the algorithm which would best serve this particular problem, from the provided above methods, would be the neural net, due to the fact that the more complex versions of this package, especially those that are provided as options with H2O using Spark in RStudio, are even more flexible and add on to the possible models and ensemble methods that you can utilize, meaning that you are essentially able to use the myriad selection of algorithms in tandem and as additive models, which we learned about in class as being quite accurate classifiers. This particular choice is also due to the fact that this particular algorithm seems not only best suited for the particular type of data that we are using, but also due to the high degree to which the model was able to predict the target variable.*
+
+### C: (30 pts) Dimensionality Reduction & Clustering 
+
+This question explores applying PCA and clustering to a gene expression dataset, `tissue_gene_expression` dataset from `dslabs`, containing measurements of 500 different genes from 189 tissue samples from various tissues.
+
+#### C1: (5 pts) Compute PCA on the data.
+
+```{r C1}
+
+tg_data <- data("tissue_gene_expression");
+
+dim(tissue_gene_expression$x);
+table(tissue_gene_expression$y);
+
+pca_tg <- prcomp(tissue_gene_expression$x);
+summary(pca_tg);
+
+```
+
+#### C2: (5 pts) Make a scree plot (elbow plot).  Describe what you observe.
+
+```{r C2}
+
+screeplot(pca_tg);
+screeplot(pca_tg, npcs = 21, type = "lines");
+
+```
+
+*It seems that the scree plot for the prcomp version of the tissue gene data follows a decreasing, 1/x sort of graph for variance across the increasing x (or 'n') values, somewhat of an inverse graph, resembling a curve that is logarithmic.*
+
+#### C3: (5 pts) Plot the PCA biplot for the samples.  Color the samples by the tissue labels.
+
+```{r C3}
+
+colnames <- as.vector(names(pca_tg$x[,2]));
+biplot(pca_tg, scale = 0.5);
+        
+```
+
+#### C4: (5 pts) Describe what you observe in the PCA biplot
+
+*The PCA biplot shows us liver values to the far right bottom of the plot, and values for the cerebellum and hippocampus and presumably other closely brain-related organs in the middle left-hand area of the graph. In the upper right hand section of the graph we see more so tissues for endocrine and colon related organs/physiological functions.*
+
+#### C5: (5 pts) Cluster the samples using hierarchical clustering, using both correlation-based distance and euclidean distance. Which would you argue is most appropriate in this case? 
+
+```{r C5}
+
+tg_x <- sweep(tissue_gene_expression$x, 2, colMeans(tissue_gene_expression$x));
+
+tg_hc1 <- hclust(dist(tg_x));
+tg_hc1 <- dist(t(tg_x)) %>% hclust();
+plot(tg_hc1, cex = 0.25);
+
+tg_hc2 <- hclust(dist(t(tg_x)));
+tg_hc2 <- dist(t(tg_x)) %>% hclust();
+plot(tg_hc2, cex = 0.25);
+
+sds_tgx <- colSds(tg_x, na.rm = TRUE);
+o_tgx <- order(sds_tgx, decreasing = TRUE)[1:25];
+
+heatmap(tg_x[,o_tgx], col = RColorBrewer::brewer.pal(11, "Spectral"))
+```
+*In this case, I would say that the most appropriate, between the two of the hierarchical clustering options, euclidean distance and correlation-based distance, is probably the one that will allow us to identify and isolate the genes that are in the subset that consist of a much higher variance than the others, as these are the tissues that we are probably going to be more interested in working with and analyzing.*
